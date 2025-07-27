@@ -31,7 +31,7 @@ In your carconnectivity.json configuration add a section for the database plugin
             {
                 "type": "database",
                 "config": {
-                    
+                    "db_url": "sqlite:///carconnectivity.db"
                 }
             }
         ]
