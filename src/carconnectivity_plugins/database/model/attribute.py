@@ -22,5 +22,9 @@ class Attribute(Base):
 
     @classmethod
     def from_generic_attribute(cls, attribute: GenericAttribute) -> Attribute:
-        """Create an Attribute instance from a GenericAttribute."""
+        """Create an Attribute instance from a GenericAttribute.
+        Args:
+            attribute (GenericAttribute): The generic attribute to convert.
+        Returns:
+            Attribute: An instance of the Attribute class."""
         return cls(path=attribute.get_absolute_path())
