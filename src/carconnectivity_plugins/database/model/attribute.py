@@ -1,13 +1,26 @@
-from sqlalchemy import Column, String, Integer
+"""Module implements the database model for attributes"""
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy.orm import Mapped, mapped_column
 
 from carconnectivity_plugins.database.model.base import Base
-from carconnectivity_plugins.database.model.datetime_decorator import DatetimeDecorator
+
+if TYPE_CHECKING:
+    from carconnectivity.attributes import GenericAttribute
 
 
+# pylint: disable-next=too-few-public-methods
 class Attribute(Base):
-    __tablename__ = 'attribute'
-    id: Column[int] = Column(Integer, primary_key=True)
-    path: Column[str] = Column(String, nullable=False, unique=True, index=True)
+    """Model for storing attributes in the database."""
+    __tablename__: str = 'attribute'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    path: Mapped[Optional[str]] = mapped_column(unique=True, nullable=True)
 
     def __init__(self, path: str) -> None:
-        self.path: str = path
+        self.path = path
+
+    @classmethod
+    def from_generic_attribute(cls, attribute: GenericAttribute) -> Attribute:
+        """Create an Attribute instance from a GenericAttribute."""
+        return cls(path=attribute.get_absolute_path())
