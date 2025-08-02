@@ -8,7 +8,8 @@
                 "disabled": false,
                 "config": {
                     "log_level": "debug",
-                    "db_url": "sqlite:///tmp/carconnectivity.db"
+                    "db_url": "sqlite:///tmp/carconnectivity.db",
+                    "self_check_only": true
                 }
             }
         ]

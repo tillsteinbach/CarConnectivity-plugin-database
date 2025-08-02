@@ -72,6 +72,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
         self._background_thread.start()
         self.healthy._set_value(value=True)  # pylint: disable=protected-access
         LOG.debug("Starting Database plugin done")
+        return super().startup()
 
     def _background_loop(self) -> None:
         self._stop_event.clear()
