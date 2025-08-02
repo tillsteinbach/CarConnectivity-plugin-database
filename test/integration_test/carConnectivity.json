@@ -7,7 +7,8 @@
                 "type": "database",
                 "disabled": false,
                 "config": {
-                    "log_level": "debug"
+                    "log_level": "debug",
+                    "db_url": "sqlite:///tmp/carconnectivity.db"
                 }
             }
         ]
