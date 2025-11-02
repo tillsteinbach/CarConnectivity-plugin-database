@@ -14,10 +14,10 @@ authors = [
     { name = "Till Steinbach" }
 ]
 dependencies = [
-    "carconnectivity>=0.8",
-    "sqlalchemy~=2.0.34",
-    "psycopg2-binary~=2.9.9",
-    "alembic~=1.13.2"
+    "carconnectivity>=0.8.1",
+    "sqlalchemy~=2.0.44",
+    "psycopg2-binary~=3.2.12",
+    "alembic~=1.17.1"
 ]
 readme = "README.md"
 license = { file = "LICENSE" }
