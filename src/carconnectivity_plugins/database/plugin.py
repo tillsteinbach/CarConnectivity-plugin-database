@@ -12,24 +12,20 @@ from sqlalchemy.orm.session import Session
 
 from carconnectivity.errors import ConfigurationError
 from carconnectivity.util import config_remove_credentials
-
 from carconnectivity.observable import Observable
-
-from carconnectivity.attributes import GenericAttribute, IntegerAttribute, BooleanAttribute, FloatAttribute, StringAttribute, DateAttribute, EnumAttribute, \
-    DurationAttribute
+from carconnectivity.vehicle import GenericVehicle
 
 from carconnectivity_plugins.base.plugin import BasePlugin
 
 from carconnectivity_plugins.database._version import __version__
 from carconnectivity_plugins.database.model.migrations import run_database_migrations
+from carconnectivity_plugins.database.model.vehicle import Vehicle
 
 from carconnectivity_plugins.database.model.base import Base
-from carconnectivity_plugins.database.model.attribute import Attribute
-from carconnectivity_plugins.database.model.attribute_value import AttributeIntegerValue, AttributeBooleanValue, AttributeFloatValue, AttributeStringValue, \
-    AttributeDatetimeValue, AttributeDurationValue, AttributeEnumValue
+
 
 if TYPE_CHECKING:
-    from typing import Dict, Optional, Any
+    from typing import Dict, Optional
     from carconnectivity.carconnectivity import CarConnectivity
 
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database")
@@ -63,7 +59,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
         scoped_session_factory: scoped_session[Session] = scoped_session(session_factory)
         self.session: Session = scoped_session_factory()
 
-        self.attribute_map: Dict[GenericAttribute, Attribute] = {}
+        self.vehicles: Dict[str, Vehicle] = {}
 
     def startup(self) -> None:
         LOG.info("Starting database plugin")
@@ -92,17 +88,31 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                         LOG.info('It looks like you have an existing database will check if an upgrade is necessary')
                         run_database_migrations(dsn=self.active_config['db_url'])
                         LOG.info('Database upgrade done')
-
-                    self.car_connectivity.add_observer(observer=self.__on_attribute_update, flag=Observable.ObserverEvent.ALL, on_transaction_end=True)
-
-                    for attribute in self.car_connectivity.get_attributes(recursive=True):
-                        self.register_attribute(attribute, commit=False)
                     self.session.commit()
+                    self.car_connectivity.garage.add_observer(self.__on_add_vehicle, flag=Observable.ObserverEvent.ENABLED, on_transaction_end=True)
+                    self.vehicles = {vehicle.vin: vehicle for vehicle in self.session.query(Vehicle).all()}
+                    for vehicle in self.vehicles.values():
+                        car_connectivity_vehicle: Optional[GenericVehicle] = self.car_connectivity.garage.get_vehicle(vehicle.vin)
+                        if car_connectivity_vehicle is not None:
+                            vehicle.connect(car_connectivity_vehicle)
+                    for garage_vehicle in self.car_connectivity.garage.list_vehicles():
+                        if garage_vehicle.vin.value is not None and garage_vehicle.vin.value not in self.vehicles:
+                            LOG.debug('New vehicle found in garage during startup: %s', garage_vehicle.vin.value)
+                            garage_vehicle: Vehicle = self.session.get(Vehicle, garage_vehicle.vin.value)
+                            if garage_vehicle is None:
+                                new_vehicle: Vehicle = Vehicle(vin=garage_vehicle.vin.value)
+                                new_vehicle.connect(garage_vehicle)
+                                self.session.add(new_vehicle)
+                                self.session.commit()
+                            else:
+                                garage_vehicle.connect(garage_vehicle)
+                            self.vehicles[garage_vehicle.vin.value] = new_vehicle
 
             except OperationalError as err:
                 LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
                 self.healthy._set_value(value=False)  # pylint: disable=protected-access
             self._stop_event.wait(10)
+            self.session.commit() # TODO: so solls natürlich nicht sein
 
     def shutdown(self) -> None:
         self._stop_event.set()
@@ -119,145 +129,23 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
     def get_name(self) -> str:
         return "Database Plugin"
 
-    def __on_attribute_update(self, element: Any, flags: Observable.ObserverEvent):
-        """
-        Callback for attribute updates.
-        Args:
-            element (Any): The updated element.
-            flags (Observable.ObserverEvent): Flags indicating the type of update.
-        """
-        if isinstance(element, GenericAttribute):
-            if flags & Observable.ObserverEvent.ENABLED:
-                LOG.debug('Attribute %s enabled', element.name)
-                self.register_attribute(element, commit=True)
-            elif flags & Observable.ObserverEvent.DISABLED:
-                LOG.debug('Attribute %s disabled', element.name)
-                if element in self.attribute_map:
-                    del self.attribute_map[element]
-            elif flags & Observable.ObserverEvent.VALUE_CHANGED:
-                LOG.debug('Attribute %s value changed', element.name)
-                self.update_value(element, commit=True)
+    def __on_add_vehicle(self, element, flags) -> None:
+        del flags
+        if isinstance(element, GenericVehicle):
+            LOG.debug('New vehicle added to garage: %s', element.vin)
+            if element.vin.value is not None:
+                if element.vin.value in self.vehicles:
+                    vehicle: Vehicle = self.vehicles[element.vin.value]
+                    vehicle.connect(element)
+                else:
+                    vehicle: Vehicle = self.session.get(Vehicle, element.vin.value)
+                    if vehicle is None:
+                        vehicle = Vehicle(vin=element.vin.value)
+                        vehicle.connect(element)
+                        self.session.add(vehicle)
+                        self.session.commit()
+                    else:
+                        vehicle.connect(element)
+                    self.vehicles[element.vin.value] = vehicle
 
-    def register_attribute(self, attribute: GenericAttribute, commit: bool = True) -> Attribute:
-        """ Register an attribute in the database.
-        Args:
-            attribute (GenericAttribute): The attribute to register.
-            commit (bool): Whether to commit the session after registering.
-        Returns:
-            Attribute: The database attribute instance."""
-        database_attribute: Optional[Attribute] = self.session.query(Attribute).filter(Attribute.path == attribute.get_absolute_path()).first()
-        if database_attribute is None:
-            database_attribute = Attribute.from_generic_attribute(attribute)
-            self.session.add(database_attribute)
-        self.attribute_map[attribute] = database_attribute
-        LOG.debug('Registering attribute %s', attribute.name)
-        self.update_value(attribute=attribute, commit=commit)
-        LOG.debug('Updated value for attribute %s to %s', attribute.name, attribute.value)
-        if commit:
-            self.session.commit()
-        return database_attribute
 
-    # pylint: disable-next=too-many-branches, too-many-statements
-    def update_value(self, attribute: GenericAttribute, commit: bool = True) -> None:
-        """ Update the value of an attribute in the database.
-        Args:
-            attribute (GenericAttribute): The attribute to update.
-            commit (bool): Whether to commit the session after updating."""
-        if attribute not in self.attribute_map:
-            database_attribute: Attribute = self.register_attribute(attribute, commit=commit)
-        else:
-            database_attribute = self.attribute_map[attribute]
-        if attribute.last_updated is not None:
-            if isinstance(attribute, IntegerAttribute):
-                last_integer_value: Optional[AttributeIntegerValue] = self.session.query(AttributeIntegerValue) \
-                    .filter(AttributeIntegerValue.attribute == database_attribute) \
-                    .order_by(AttributeIntegerValue.start_date.desc()).first()
-                if last_integer_value is None or last_integer_value.value != attribute.value:
-                    last_integer_value = AttributeIntegerValue(attribute=database_attribute, start_date=attribute.last_updated, value=attribute.value)
-                    last_integer_value.end_date = attribute.last_updated
-                    self.session.add(last_integer_value)
-                    LOG.debug('Updating value for attribute %s to %s', attribute.name, attribute.value)
-                else:
-                    last_integer_value.value = attribute.value
-                    last_integer_value.end_date = attribute.last_updated
-            elif isinstance(attribute, BooleanAttribute):
-                last_boolean_value: Optional[AttributeBooleanValue] = self.session.query(AttributeBooleanValue) \
-                    .filter(AttributeBooleanValue.attribute == database_attribute) \
-                    .order_by(AttributeBooleanValue.start_date.desc()).first()
-                if last_boolean_value is None or last_boolean_value.value != attribute.value:
-                    last_boolean_value = AttributeBooleanValue(attribute=database_attribute, start_date=attribute.last_updated, value=attribute.value)
-                    last_boolean_value.end_date = attribute.last_updated
-                    self.session.add(last_boolean_value)
-                    LOG.debug('Updating value for attribute %s to %s', attribute.name, attribute.value)
-                else:
-                    last_boolean_value.value = attribute.value
-                    last_boolean_value.end_date = attribute.last_updated
-            elif isinstance(attribute, FloatAttribute):
-                last_float_value: Optional[AttributeFloatValue] = self.session.query(AttributeFloatValue) \
-                    .filter(AttributeFloatValue.attribute == database_attribute) \
-                    .order_by(AttributeFloatValue.start_date.desc()).first()
-                if last_float_value is None or last_float_value.value != attribute.value:
-                    last_float_value = AttributeFloatValue(attribute=database_attribute, start_date=attribute.last_updated, value=attribute.value)
-                    last_float_value.end_date = attribute.last_updated
-                    self.session.add(last_float_value)
-                    LOG.debug('Updating value for attribute %s to %s', attribute.name, attribute.value)
-                else:
-                    last_float_value.value = attribute.value
-                    last_float_value.end_date = attribute.last_updated
-            elif isinstance(attribute, StringAttribute):
-                last_string_value: Optional[AttributeStringValue] = self.session.query(AttributeStringValue) \
-                    .filter(AttributeStringValue.attribute == database_attribute) \
-                    .order_by(AttributeStringValue.start_date.desc()).first()
-                if last_string_value is None or last_string_value.value != attribute.value:
-                    last_string_value = AttributeStringValue(attribute=database_attribute, start_date=attribute.last_updated, value=attribute.value)
-                    last_string_value.end_date = attribute.last_updated
-                    self.session.add(last_string_value)
-                    LOG.debug('Updating value for attribute %s to %s', attribute.name, attribute.value)
-                else:
-                    last_string_value.value = attribute.value
-                    last_string_value.end_date = attribute.last_updated
-            elif isinstance(attribute, DateAttribute):
-                last_datetime_value: Optional[AttributeDatetimeValue] = self.session.query(AttributeDatetimeValue) \
-                    .filter(AttributeDatetimeValue.attribute == database_attribute) \
-                    .order_by(AttributeDatetimeValue.start_date.desc()).first()
-                if last_datetime_value is None or last_datetime_value.value != attribute.value:
-                    last_datetime_value = AttributeDatetimeValue(attribute=database_attribute, start_date=attribute.last_updated, value=attribute.value)
-                    last_datetime_value.end_date = attribute.last_updated
-                    self.session.add(last_datetime_value)
-                    LOG.debug('Updating value for attribute %s to %s', attribute.name, attribute.value)
-                else:
-                    last_datetime_value.value = attribute.value
-                    last_datetime_value.end_date = attribute.last_updated
-            elif isinstance(attribute, DurationAttribute):
-                last_duration_value: Optional[AttributeDurationValue] = self.session.query(AttributeDurationValue) \
-                    .filter(AttributeDurationValue.attribute == database_attribute) \
-                    .order_by(AttributeDurationValue.start_date.desc()).first()
-                if last_duration_value is None or last_duration_value.value != attribute.value:
-                    last_duration_value = AttributeDurationValue(attribute=database_attribute, start_date=attribute.last_updated, value=attribute.value)
-                    last_duration_value.end_date = attribute.last_updated
-                    self.session.add(last_duration_value)
-                    LOG.debug('Updating value for attribute %s to %s', attribute.name, attribute.value)
-                else:
-                    last_duration_value.value = attribute.value
-                    last_duration_value.end_date = attribute.last_updated
-            elif isinstance(attribute, EnumAttribute):
-                last_enum_value: Optional[AttributeEnumValue] = self.session.query(AttributeEnumValue) \
-                    .filter(AttributeEnumValue.attribute == database_attribute) \
-                    .order_by(AttributeEnumValue.start_date.desc()).first()
-                if attribute.value is None:
-                    value: Optional[str] = None
-                else:
-                    value = attribute.value.value
-                if last_enum_value is None or last_enum_value.value != value:
-                    last_enum_value = AttributeEnumValue(attribute=database_attribute, start_date=attribute.last_updated, value=value)
-                    last_enum_value.end_date = attribute.last_updated
-                    self.session.add(last_enum_value)
-                    LOG.debug('Updating value for attribute %s to %s', attribute.name, attribute.value)
-                else:
-                    last_enum_value.value = value
-                    last_enum_value.end_date = attribute.last_updated
-            else:
-                LOG.debug('Attribute type %s is not supported for database storage', type(attribute).__name__)
-                return
-            if commit:
-                self.session.commit()
