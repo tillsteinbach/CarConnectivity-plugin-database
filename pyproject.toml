@@ -17,7 +17,8 @@ dependencies = [
     "carconnectivity>=0.9.2",
     "sqlalchemy~=2.0.45",
     "psycopg2-binary~=2.9.11",
-    "alembic~=1.17.2"
+    "alembic~=1.17.2",
+    "SQLAlchemy-Utc~=0.14.0"
 ]
 readme = "README.md"
 license = "MIT"

@@ -94,25 +94,25 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                     for vehicle in self.vehicles.values():
                         car_connectivity_vehicle: Optional[GenericVehicle] = self.car_connectivity.garage.get_vehicle(vehicle.vin)
                         if car_connectivity_vehicle is not None:
-                            vehicle.connect(car_connectivity_vehicle)
+                            vehicle.connect(self.session, car_connectivity_vehicle)
                     for garage_vehicle in self.car_connectivity.garage.list_vehicles():
                         if garage_vehicle.vin.value is not None and garage_vehicle.vin.value not in self.vehicles:
                             LOG.debug('New vehicle found in garage during startup: %s', garage_vehicle.vin.value)
-                            garage_vehicle: Vehicle = self.session.get(Vehicle, garage_vehicle.vin.value)
-                            if garage_vehicle is None:
+                            new_vehicle: Vehicle = self.session.get(Vehicle, garage_vehicle.vin.value)
+                            if new_vehicle is None:
                                 new_vehicle: Vehicle = Vehicle(vin=garage_vehicle.vin.value)
-                                new_vehicle.connect(garage_vehicle)
+                                new_vehicle.connect(self.session, garage_vehicle)
                                 self.session.add(new_vehicle)
                                 self.session.commit()
                             else:
-                                garage_vehicle.connect(garage_vehicle)
+                                new_vehicle.connect(self.session, garage_vehicle)
                             self.vehicles[garage_vehicle.vin.value] = new_vehicle
 
             except OperationalError as err:
                 LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
                 self.healthy._set_value(value=False)  # pylint: disable=protected-access
             self._stop_event.wait(10)
-            self.session.commit() # TODO: so solls natürlich nicht sein
+            self.session.commit()  # TODO: so solls natürlich nicht sein
 
     def shutdown(self) -> None:
         self._stop_event.set()
@@ -136,16 +136,14 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
             if element.vin.value is not None:
                 if element.vin.value in self.vehicles:
                     vehicle: Vehicle = self.vehicles[element.vin.value]
-                    vehicle.connect(element)
+                    vehicle.connect(self.session, element)
                 else:
                     vehicle: Vehicle = self.session.get(Vehicle, element.vin.value)
                     if vehicle is None:
                         vehicle = Vehicle(vin=element.vin.value)
-                        vehicle.connect(element)
+                        vehicle.connect(self.session, element)
                         self.session.add(vehicle)
                         self.session.commit()
                     else:
-                        vehicle.connect(element)
+                        vehicle.connect(self.session, element)
                     self.vehicles[element.vin.value] = vehicle
-
-

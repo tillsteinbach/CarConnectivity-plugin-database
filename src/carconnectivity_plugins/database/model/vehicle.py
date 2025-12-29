@@ -1,3 +1,4 @@
+""" This module contains the Vehicle database model"""
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
@@ -5,11 +6,46 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from carconnectivity.vehicle import GenericVehicle
 from carconnectivity.observable import Observable
+from carconnectivity.attributes import StringAttribute, IntegerAttribute, EnumAttribute
 
+from carconnectivity_plugins.database.agents.base_agent import BaseAgent
+from carconnectivity_plugins.database.agents.state_agent import StateAgent
 from carconnectivity_plugins.database.model.base import Base
+from carconnectivity_plugins.database.model.drive import Drive
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm.session import Session
 
 
 class Vehicle(Base):
+    """
+    SQLAlchemy model representing a vehicle in the database.
+
+    This class maps vehicle data from the CarConnectivity framework to database records,
+    maintaining synchronization between the CarConnectivity vehicle objects and their
+    corresponding database entries.
+
+    Attributes:
+        vin (str): Vehicle Identification Number, used as the primary key.
+        name (Optional[str]): The name or nickname of the vehicle.
+        manufacturer (Optional[str]): The manufacturer of the vehicle.
+        model (Optional[str]): The model name of the vehicle.
+        model_year (Optional[int]): The model year of the vehicle.
+        type (Optional[GenericVehicle.Type]): The type of vehicle (e.g., electric, hybrid).
+        license_plate (Optional[str]): The license plate number of the vehicle.
+        carconnectivity_vehicle (Optional[GenericVehicle]): Reference to the associated
+            CarConnectivity GenericVehicle object (not persisted in database).
+
+    Methods:
+        __init__(vin): Initialize a new Vehicle instance with the given VIN.
+        connect(carconnectivity_vehicle): Connect this database model to a CarConnectivity
+            vehicle object and set up observers to sync changes.
+
+    Notes:
+        The class uses SQLAlchemy's mapped_column and Mapped types for database mapping.
+        Observer callbacks are registered to automatically update database fields when
+        corresponding values change in the CarConnectivity vehicle object.
+    """
     __tablename__ = 'vehicles'
     __allow_unmapped__ = True
 
@@ -22,11 +58,28 @@ class Vehicle(Base):
     license_plate: Mapped[Optional[str]]
 
     carconnectivity_vehicle: Optional[GenericVehicle] = None
+    agents: list[BaseAgent] = []
 
     def __init__(self, vin) -> None:
         self.vin = vin
 
-    def connect(self, carconnectivity_vehicle: GenericVehicle) -> None:
+    def connect(self, session: Session, carconnectivity_vehicle: GenericVehicle) -> None:
+        """
+        Connect a CarConnectivity vehicle instance to this database vehicle model and set up observers.
+        This method establishes a connection between a CarConnectivity vehicle object and this database vehicle model.
+        It registers observers for various vehicle attributes (name, manufacturer, model, model_year, type, and license_plate)
+        to monitor changes and synchronize them with the database. If the attributes are enabled and have values that differ
+        from the current database values, they are immediately synchronized.
+        Args:
+            carconnectivity_vehicle (GenericVehicle): The CarConnectivity vehicle instance to connect and observe.
+        Returns:
+            None
+        Note:
+            - Observers are triggered on transaction end to batch updates
+            - Only enabled attributes are synchronized
+            - The type attribute is only synchronized if it's not None
+        """
+
         self.carconnectivity_vehicle = carconnectivity_vehicle
         self.carconnectivity_vehicle.name.add_observer(self.__on_name_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
         if self.carconnectivity_vehicle.name.enabled and self.name != self.carconnectivity_vehicle.name.value:
@@ -43,39 +96,52 @@ class Vehicle(Base):
         if self.carconnectivity_vehicle.model_year.enabled and self.model_year != self.carconnectivity_vehicle.model_year.value:
             self.model_year = self.carconnectivity_vehicle.model_year.value
         self.carconnectivity_vehicle.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
-        if self.carconnectivity_vehicle.type.enabled and self.carconnectivity_vehicle.type.value is not None and self.type != self.carconnectivity_vehicle.type.value:
+        if self.carconnectivity_vehicle.type.enabled and self.carconnectivity_vehicle.type.value is not None \
+                and self.type != self.carconnectivity_vehicle.type.value:
             self.type = self.carconnectivity_vehicle.type.value
         self.carconnectivity_vehicle.license_plate.add_observer(self.__on_license_plate_change, Observable.ObserverEvent.VALUE_CHANGED,
                                                                 on_transaction_end=True)
         if self.carconnectivity_vehicle.license_plate.enabled and self.license_plate != self.carconnectivity_vehicle.license_plate.value:
             self.license_plate = self.carconnectivity_vehicle.license_plate.value
 
-    def __on_name_change(self, element, flags) -> None:
+        for drive_id, drive in self.carconnectivity_vehicle.drives.drives.items():
+            drive_db: Optional[Drive] = session.query(Drive).filter(Drive.vin == self.vin, Drive.drive_id == drive_id).first()
+            if drive_db is None:
+                drive_db = Drive(vin=self.vin, drive_id=drive_id)
+                with session.begin_nested():
+                    session.add(drive_db)
+                session.commit()
+            drive_db.connect(session, drive)
+
+        state_agent: StateAgent = StateAgent(session, self)  # type: ignore[assignment]
+        self.agents.append(state_agent)
+
+    def __on_name_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if self.name != element.value:
             self.name = element.value
 
-    def __on_manufacturer_change(self, element, flags) -> None:
+    def __on_manufacturer_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if self.manufacturer != element.value:
             self.manufacturer = element.value
 
-    def __on_model_change(self, element, flags) -> None:
+    def __on_model_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if self.model != element.value:
             self.model = element.value
 
-    def __on_model_year_change(self, element, flags) -> None:
+    def __on_model_year_change(self, element: IntegerAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if self.model_year != element.value:
             self.model_year = element.value
 
-    def __on_type_change(self, element, flags) -> None:
+    def __on_type_change(self, element: EnumAttribute[GenericVehicle.Type], flags: Observable.ObserverEvent) -> None:
         del flags
         if element.value is not None and self.type != element.value:
             self.type = element.value
 
-    def __on_license_plate_change(self, element, flags) -> None:
+    def __on_license_plate_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if self.license_plate != element.value:
             self.license_plate = element.value
