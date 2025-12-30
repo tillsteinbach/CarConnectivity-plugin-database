@@ -124,6 +124,7 @@ class ChargingAgent(BaseAgent):
                     self.session.add(new_session)
                     LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
                     self._update_session_odometer(new_session)
+                    self._update_session_position(new_session)
                     self.last_charging_session = new_session
                 except DatabaseError as err:
                     self.session.rollback()
@@ -136,6 +137,7 @@ class ChargingAgent(BaseAgent):
                     try:
                         self.last_charging_session.session_start_date = element.last_updated
                         self._update_session_odometer(self.last_charging_session)
+                        self._update_session_position(new_session)
                     except DatabaseError as err:
                         self.session.rollback()
                         LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
@@ -235,6 +237,7 @@ class ChargingAgent(BaseAgent):
                 try:
                     self.session.add(new_session)
                     self._update_session_odometer(new_session)
+                    self._update_session_position(new_session)
                     LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
                     self.last_charging_session = new_session
                 except DatabaseError as err:
@@ -245,6 +248,7 @@ class ChargingAgent(BaseAgent):
                 try:
                     self.last_charging_session.plug_connected_date = element.last_updated
                     self._update_session_odometer(self.last_charging_session)
+                    self._update_session_position(new_session)
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
@@ -275,6 +279,7 @@ class ChargingAgent(BaseAgent):
                 try:
                     self.session.add(new_session)
                     self._update_session_odometer(new_session)
+                    self._update_session_position(new_session)
                     LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
                     self.last_charging_session = new_session
                 except DatabaseError as err:
@@ -285,6 +290,7 @@ class ChargingAgent(BaseAgent):
                 try:
                     self.last_charging_session.plug_locked_date = element.last_updated
                     self._update_session_odometer(self.last_charging_session)
+                    self._update_session_position(new_session)
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)

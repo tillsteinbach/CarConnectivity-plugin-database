@@ -72,7 +72,7 @@ class ChargingSession(Base):  # pylint: disable=too-few-public-methods
     session_position_latitude: Mapped[Optional[float]]
     session_position_longitude: Mapped[Optional[float]]
     session_odometer: Mapped[Optional[float]]
-    charging_type: Mapped[Optional[Charging.ChargingType]]
+    charging_type: Mapped[Optional[Charging.ChargingType]]  # TODO remove later
     tags: Mapped[list["Tag"]] = relationship("Tag", secondary=charging_tag_association_table, backref=backref("charging_sessions"))
 
     # pylint: disable-next=too-many-arguments, too-many-positional-arguments
