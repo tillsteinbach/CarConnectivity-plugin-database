@@ -1,6 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+import logging
+
+from sqlalchemy.exc import DatabaseError
+
 from carconnectivity.observable import Observable
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
@@ -15,6 +19,8 @@ if TYPE_CHECKING:
 
     from carconnectivity_plugins.database.model.drive import Drive
 
+
+LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.drive_state_agent")
 
 class DriveStateAgent(BaseAgent):
     def __init__(self, session: Session, drive: Drive) -> None:
@@ -40,16 +46,24 @@ class DriveStateAgent(BaseAgent):
                 and element.last_updated is not None:
             new_level: DriveLevel = DriveLevel(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
                                                level=element.value)
-            with self.session.begin_nested():
-                self.session.add(new_level)
-            self.session.commit()
-            self.last_level = new_level
+            try:
+                with self.session.begin_nested():
+                    self.session.add(new_level)
+                self.session.commit()
+                self.last_level = new_level
+            except DatabaseError as err:
+                self.session.rollback()
+                LOG.error('DatabaseError while adding level for drive %s to database: %s', self.drive.id, err)
         elif self.last_level is not None and self.last_level.level == element.value \
                 and element.last_updated is not None:
             if self.last_level.last_date is None or element.last_updated > self.last_level.last_date:
-                with self.session.begin_nested():
-                    self.last_level.last_date = element.last_updated
-                self.session.commit()
+                try:
+                    with self.session.begin_nested():
+                        self.last_level.last_date = element.last_updated
+                    self.session.commit()
+                except DatabaseError as err:
+                    self.session.rollback()
+                    LOG.error('DatabaseError while updating level for drive %s in database: %s', self.drive.id, err)
 
     def __on_range_change(self, element: RangeAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
@@ -59,13 +73,21 @@ class DriveStateAgent(BaseAgent):
                 and element.last_updated is not None:
             new_range: DriveRange = DriveRange(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
                                                range=element.value)
-            with self.session.begin_nested():
-                self.session.add(new_range)
-            self.session.commit()
-            self.last_range = new_range
+            try:
+                with self.session.begin_nested():
+                    self.session.add(new_range)
+                self.session.commit()
+                self.last_range = new_range
+            except DatabaseError as err:
+                self.session.rollback()
+                LOG.error('DatabaseError while adding range for drive %s to database: %s', self.drive.id, err)
         elif self.last_range is not None and self.last_range.range == element.value \
                 and element.last_updated is not None:
             if self.last_range.last_date is None or element.last_updated > self.last_range.last_date:
-                with self.session.begin_nested():
-                    self.last_range.last_date = element.last_updated
-                self.session.commit()
+                try:
+                    with self.session.begin_nested():
+                        self.last_range.last_date = element.last_updated
+                    self.session.commit()
+                except DatabaseError as err:
+                    self.session.rollback()
+                    LOG.error('DatabaseError while updating range for drive %s in database: %s', self.drive.id, err)

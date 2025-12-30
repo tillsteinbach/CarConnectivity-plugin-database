@@ -1,6 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+import logging
+
+from sqlalchemy.exc import DatabaseError
+
 from carconnectivity.observable import Observable
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
@@ -17,6 +21,9 @@ if TYPE_CHECKING:
     from carconnectivity.vehicle import GenericVehicle
 
     from carconnectivity_plugins.database.model.vehicle import Vehicle
+
+
+LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.state_agent")
 
 
 class StateAgent(BaseAgent):
@@ -47,15 +54,24 @@ class StateAgent(BaseAgent):
         if (self.last_state is None or self.last_state.state != element.value) \
                 and element.last_updated is not None:
             new_state: State = State(vin=self.vehicle.vin, first_date=element.last_updated, last_date=element.last_updated, state=element.value)
-            with self.session.begin_nested():
-                self.session.add(new_state)
-            self.session.commit()
-            self.last_state = new_state
+            try:
+                with self.session.begin_nested():
+                    self.session.add(new_state)
+                self.session.commit()
+                self.last_state = new_state
+            except DatabaseError as err:
+                self.session.rollback()
+                LOG.error('DatabaseError while adding state for vehicle %s to database: %s', self.vehicle.vin, err)
+
         elif self.last_state is not None and self.last_state.state == element.value and element.last_updated is not None:
             if self.last_state.last_date is None or element.last_updated > self.last_state.last_date:
-                with self.session.begin_nested():
-                    self.last_state.last_date = element.last_updated
-                self.session.commit()
+                try:
+                    with self.session.begin_nested():
+                        self.last_state.last_date = element.last_updated
+                    self.session.commit()
+                except DatabaseError as err:
+                    self.session.rollback()
+                    LOG.error('DatabaseError while updating state for vehicle %s in database: %s', self.vehicle.vin, err)
 
     def __on_connection_state_change(self, element: EnumAttribute[GenericVehicle.ConnectionState], flags: Observable.ObserverEvent) -> None:
         del flags
@@ -65,15 +81,23 @@ class StateAgent(BaseAgent):
                 and element.last_updated is not None:
             new_connection_state: ConnectionState = ConnectionState(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                     last_date=element.last_updated, connection_state=element.value)
-            with self.session.begin_nested():
-                self.session.add(new_connection_state)
-            self.session.commit()
-            self.last_connection_state = new_connection_state
+            try:
+                with self.session.begin_nested():
+                    self.session.add(new_connection_state)
+                self.session.commit()
+                self.last_connection_state = new_connection_state
+            except DatabaseError as err:
+                self.session.rollback()
+                LOG.error('DatabaseError while adding connection state for vehicle %s to database: %s', self.vehicle.vin, err)
         elif self.last_connection_state is not None and self.last_connection_state.connection_state == element.value and element.last_updated is not None:
             if self.last_connection_state.last_date is None or element.last_updated > self.last_connection_state.last_date:
-                with self.session.begin_nested():
-                    self.last_connection_state.last_date = element.last_updated
-                self.session.commit()
+                try:
+                    with self.session.begin_nested():
+                        self.last_connection_state.last_date = element.last_updated
+                    self.session.commit()
+                except DatabaseError as err:
+                    self.session.rollback()
+                    LOG.error('DatabaseError while updating connection state for vehicle %s in database: %s', self.vehicle.vin, err)
 
     def __on_outside_temperature_change(self, element: TemperatureAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
@@ -83,12 +107,21 @@ class StateAgent(BaseAgent):
                 and element.last_updated is not None:
             new_outside_temperature: OutsideTemperature = OutsideTemperature(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                              last_date=element.last_updated, outside_temperature=element.value)
-            self.session.add(new_outside_temperature)
-            self.session.commit()
-            self.last_outside_temperature = new_outside_temperature
+            try:
+                with self.session.begin_nested():
+                    self.session.add(new_outside_temperature)
+                self.session.commit()
+                self.last_outside_temperature = new_outside_temperature
+            except DatabaseError as err:
+                self.session.rollback()
+                LOG.error('DatabaseError while adding outside temperature for vehicle %s to database: %s', self.vehicle.vin, err)
         elif self.last_outside_temperature is not None and self.last_outside_temperature.outside_temperature == element.value \
                 and element.last_updated is not None:
             if self.last_outside_temperature.last_date is None or element.last_updated > self.last_outside_temperature.last_date:
-                with self.session.begin_nested():
-                    self.last_outside_temperature.last_date = element.last_updated
-                self.session.commit()
+                try:
+                    with self.session.begin_nested():
+                        self.last_outside_temperature.last_date = element.last_updated
+                    self.session.commit()
+                except DatabaseError as err:
+                    self.session.rollback()
+                    LOG.error('DatabaseError while updating outside temperature for vehicle %s in database: %s', self.vehicle.vin, err)
