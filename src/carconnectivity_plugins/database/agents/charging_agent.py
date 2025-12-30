@@ -9,6 +9,7 @@ from sqlalchemy.exc import DatabaseError
 from carconnectivity.observable import Observable
 from carconnectivity.vehicle import ElectricVehicle
 from carconnectivity.charging import Charging
+from carconnectivity.charging_connector import ChargingConnector
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
     from sqlalchemy.orm.session import Session
 
     from carconnectivity.attributes import EnumAttribute, SpeedAttribute, PowerAttribute
-    from carconnectivity.charging_connector import ChargingConnector
 
     from carconnectivity_plugins.database.model.vehicle import Vehicle
     from carconnectivity.drive import ElectricDrive
