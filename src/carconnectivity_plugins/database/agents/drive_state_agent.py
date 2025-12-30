@@ -33,53 +33,61 @@ class DriveStateAgent(BaseAgent):
         self.last_range: Optional[DriveRange] = session.query(DriveRange).filter(DriveRange.drive_id == drive.id).order_by(DriveRange.first_date.desc()).first()
 
         drive.carconnectivity_drive.level.add_observer(self.__on_level_change, Observable.ObserverEvent.UPDATED)
-        self.__on_level_change(drive.carconnectivity_drive.level, Observable.ObserverEvent.UPDATED)
+        if drive.carconnectivity_drive.level.enabled:
+            self.__on_level_change(drive.carconnectivity_drive.level, Observable.ObserverEvent.UPDATED)
 
         drive.carconnectivity_drive.range.add_observer(self.__on_range_change, Observable.ObserverEvent.UPDATED)
-        self.__on_range_change(drive.carconnectivity_drive.range, Observable.ObserverEvent.UPDATED)
+        if drive.carconnectivity_drive.range.enabled:
+            self.__on_range_change(drive.carconnectivity_drive.range, Observable.ObserverEvent.UPDATED)
 
     def __on_level_change(self, element: LevelAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
-        if self.last_level is not None:
-            self.session.refresh(self.last_level)
-        if (self.last_level is None or self.last_level.level != element.value) \
-                and element.last_updated is not None:
-            new_level: DriveLevel = DriveLevel(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
-                                               level=element.value)
-            try:
-                self.session.add(new_level)
-                self.last_level = new_level
-            except DatabaseError as err:
-                self.session.rollback()
-                LOG.error('DatabaseError while adding level for drive %s to database: %s', self.drive.id, err)
-        elif self.last_level is not None and self.last_level.level == element.value \
-                and element.last_updated is not None:
-            if self.last_level.last_date is None or element.last_updated > self.last_level.last_date:
+        if element.enabled:
+            if self.last_level is not None:
+                self.session.refresh(self.last_level)
+            if (self.last_level is None or self.last_level.level != element.value) \
+                    and element.last_updated is not None:
+                new_level: DriveLevel = DriveLevel(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
+                                                level=element.value)
                 try:
-                    self.last_level.last_date = element.last_updated
+                    self.session.add(new_level)
+                    LOG.debug('Added new level %s for drive %s to database', element.value, self.drive.id)
+                    self.last_level = new_level
                 except DatabaseError as err:
                     self.session.rollback()
-                    LOG.error('DatabaseError while updating level for drive %s in database: %s', self.drive.id, err)
+                    LOG.error('DatabaseError while adding level for drive %s to database: %s', self.drive.id, err)
+            elif self.last_level is not None and self.last_level.level == element.value \
+                    and element.last_updated is not None:
+                if self.last_level.last_date is None or element.last_updated > self.last_level.last_date:
+                    try:
+                        self.last_level.last_date = element.last_updated
+                        LOG.debug('Updated level %s for drive %s in database', element.value, self.drive.id)
+                    except DatabaseError as err:
+                        self.session.rollback()
+                        LOG.error('DatabaseError while updating level for drive %s in database: %s', self.drive.id, err)
 
     def __on_range_change(self, element: RangeAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
-        if self.last_range is not None:
-            self.session.refresh(self.last_range)
-        if (self.last_range is None or self.last_range.range != element.value) \
-                and element.last_updated is not None:
-            new_range: DriveRange = DriveRange(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
-                                               range=element.value)
-            try:
-                self.session.add(new_range)
-                self.last_range = new_range
-            except DatabaseError as err:
-                self.session.rollback()
-                LOG.error('DatabaseError while adding range for drive %s to database: %s', self.drive.id, err)
-        elif self.last_range is not None and self.last_range.range == element.value \
-                and element.last_updated is not None:
-            if self.last_range.last_date is None or element.last_updated > self.last_range.last_date:
+        if element.enabled:
+            if self.last_range is not None:
+                self.session.refresh(self.last_range)
+            if (self.last_range is None or self.last_range.range != element.value) \
+                    and element.last_updated is not None:
+                new_range: DriveRange = DriveRange(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
+                                                range=element.value)
                 try:
-                    self.last_range.last_date = element.last_updated
+                    self.session.add(new_range)
+                    LOG.debug('Added new range %s for drive %s to database', element.value, self.drive.id)
+                    self.last_range = new_range
                 except DatabaseError as err:
                     self.session.rollback()
-                    LOG.error('DatabaseError while updating range for drive %s in database: %s', self.drive.id, err)
+                    LOG.error('DatabaseError while adding range for drive %s to database: %s', self.drive.id, err)
+            elif self.last_range is not None and self.last_range.range == element.value \
+                    and element.last_updated is not None:
+                if self.last_range.last_date is None or element.last_updated > self.last_range.last_date:
+                    try:
+                        self.last_range.last_date = element.last_updated
+                        LOG.debug('Updated range %s for drive %s in database', element.value, self.drive.id)
+                    except DatabaseError as err:
+                        self.session.rollback()
+                        LOG.error('DatabaseError while updating range for drive %s in database: %s', self.drive.id, err)

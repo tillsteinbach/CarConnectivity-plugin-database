@@ -63,38 +63,41 @@ class TripAgent(BaseAgent):
 
     def __on_state_change(self, element: EnumAttribute[GenericVehicle.State], flags: Observable.ObserverEvent) -> None:
         del flags
-        if self.vehicle.carconnectivity_vehicle is None:
-            raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
-        if element.enabled and element.value is not None:
-            if self.last_carconnectivity_state is not None:
-                if self.last_carconnectivity_state not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
-                        and element.value in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
-                    if self.trip is not None:
-                        LOG.warning("Starting new trip for vehicle %s while previous trip is still open, closing previous trip first", self.vehicle.vin)
-                        self.trip = None
-                    LOG.info("Starting new trip for vehicle %s", self.vehicle.vin)
-                    start_date: datetime = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
-                    new_trip: Trip = Trip(vin=self.vehicle.vin, start_date=start_date)
-                    if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
-                            self.vehicle.carconnectivity_vehicle.odometer.value is not None:
-                        new_trip.start_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
-                    try:
-                        self.session.add(new_trip)
-                        self.trip = new_trip
-                    except DatabaseError as err:
-                        self.session.rollback()
-                        LOG.error('DatabaseError while adding trip for vehicle %s to database: %s', self.vehicle.vin, err)
-                elif self.last_carconnectivity_state in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
-                        and element.value not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
-                    if self.trip is not None:
-                        LOG.info("Ending trip for vehicle %s", self.vehicle.vin)
-                        try:
-                            self.trip.end_date = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
-                            if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
-                                    self.vehicle.carconnectivity_vehicle.odometer.value is not None:
-                                self.trip.destination_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
+        if element.enabled:
+            if self.vehicle.carconnectivity_vehicle is None:
+                raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
+            if element.enabled and element.value is not None:
+                if self.last_carconnectivity_state is not None:
+                    if self.last_carconnectivity_state not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
+                            and element.value in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
+                        if self.trip is not None:
+                            LOG.warning("Starting new trip for vehicle %s while previous trip is still open, closing previous trip first", self.vehicle.vin)
                             self.trip = None
+                        LOG.info("Starting new trip for vehicle %s", self.vehicle.vin)
+                        start_date: datetime = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
+                        new_trip: Trip = Trip(vin=self.vehicle.vin, start_date=start_date)
+                        if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
+                                self.vehicle.carconnectivity_vehicle.odometer.value is not None:
+                            new_trip.start_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
+                        try:
+                            self.session.add(new_trip)
+                            LOG.debug('Added new trip for vehicle %s to database', self.vehicle.vin)
+                            self.trip = new_trip
                         except DatabaseError as err:
                             self.session.rollback()
-                            LOG.error('DatabaseError while ending trip for vehicle %s in database: %s', self.vehicle.vin, err)
-            self.last_carconnectivity_state = element.value
+                            LOG.error('DatabaseError while adding trip for vehicle %s to database: %s', self.vehicle.vin, err)
+                    elif self.last_carconnectivity_state in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
+                            and element.value not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
+                        if self.trip is not None:
+                            LOG.info("Ending trip for vehicle %s", self.vehicle.vin)
+                            try:
+                                self.trip.end_date = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
+                                if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
+                                        self.vehicle.carconnectivity_vehicle.odometer.value is not None:
+                                    self.trip.destination_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
+                                    LOG.debug('Set destination odometer %.2f for trip of vehicle %s', self.trip.destination_odometer, self.vehicle.vin)
+                                self.trip = None
+                            except DatabaseError as err:
+                                self.session.rollback()
+                                LOG.error('DatabaseError while ending trip for vehicle %s in database: %s', self.vehicle.vin, err)
+                self.last_carconnectivity_state = element.value

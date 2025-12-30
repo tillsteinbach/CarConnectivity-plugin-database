@@ -49,67 +49,76 @@ class StateAgent(BaseAgent):
 
     def __on_state_change(self, element: EnumAttribute[GenericVehicle.State], flags: Observable.ObserverEvent) -> None:
         del flags
-        if self.last_state is not None:
-            self.session.refresh(self.last_state)
-        if (self.last_state is None or self.last_state.state != element.value) \
-                and element.last_updated is not None:
-            new_state: State = State(vin=self.vehicle.vin, first_date=element.last_updated, last_date=element.last_updated, state=element.value)
-            try:
-                self.session.add(new_state)
-                self.last_state = new_state
-            except DatabaseError as err:
-                self.session.rollback()
-                LOG.error('DatabaseError while adding state for vehicle %s to database: %s', self.vehicle.vin, err)
-
-        elif self.last_state is not None and self.last_state.state == element.value and element.last_updated is not None:
-            if self.last_state.last_date is None or element.last_updated > self.last_state.last_date:
+        if element.enabled:
+            if self.last_state is not None:
+                self.session.refresh(self.last_state)
+            if (self.last_state is None or self.last_state.state != element.value) \
+                    and element.last_updated is not None:
+                new_state: State = State(vin=self.vehicle.vin, first_date=element.last_updated, last_date=element.last_updated, state=element.value)
                 try:
-                    self.last_state.last_date = element.last_updated
+                    self.session.add(new_state)
+                    LOG.debug('Added new state %s for vehicle %s to database', element.value, self.vehicle.vin)
+                    self.last_state = new_state
                 except DatabaseError as err:
                     self.session.rollback()
-                    LOG.error('DatabaseError while updating state for vehicle %s in database: %s', self.vehicle.vin, err)
+                    LOG.error('DatabaseError while adding state for vehicle %s to database: %s', self.vehicle.vin, err)
+
+            elif self.last_state is not None and self.last_state.state == element.value and element.last_updated is not None:
+                if self.last_state.last_date is None or element.last_updated > self.last_state.last_date:
+                    try:
+                        self.last_state.last_date = element.last_updated
+                        LOG.debug('Updated state %s for vehicle %s in database', element.value, self.vehicle.vin)
+                    except DatabaseError as err:
+                        self.session.rollback()
+                        LOG.error('DatabaseError while updating state for vehicle %s in database: %s', self.vehicle.vin, err)
 
     def __on_connection_state_change(self, element: EnumAttribute[GenericVehicle.ConnectionState], flags: Observable.ObserverEvent) -> None:
         del flags
-        if self.last_connection_state is not None:
-            self.session.refresh(self.last_connection_state)
-        if (self.last_connection_state is None or self.last_connection_state.connection_state != element.value) \
-                and element.last_updated is not None:
-            new_connection_state: ConnectionState = ConnectionState(vin=self.vehicle.vin, first_date=element.last_updated,
-                                                                    last_date=element.last_updated, connection_state=element.value)
-            try:
-                self.session.add(new_connection_state)
-                self.last_connection_state = new_connection_state
-            except DatabaseError as err:
-                self.session.rollback()
-                LOG.error('DatabaseError while adding connection state for vehicle %s to database: %s', self.vehicle.vin, err)
-        elif self.last_connection_state is not None and self.last_connection_state.connection_state == element.value and element.last_updated is not None:
-            if self.last_connection_state.last_date is None or element.last_updated > self.last_connection_state.last_date:
+        if element.enabled:
+            if self.last_connection_state is not None:
+                self.session.refresh(self.last_connection_state)
+            if (self.last_connection_state is None or self.last_connection_state.connection_state != element.value) \
+                    and element.last_updated is not None:
+                new_connection_state: ConnectionState = ConnectionState(vin=self.vehicle.vin, first_date=element.last_updated,
+                                                                        last_date=element.last_updated, connection_state=element.value)
                 try:
-                    self.last_connection_state.last_date = element.last_updated
+                    self.session.add(new_connection_state)
+                    LOG.debug('Added new connection state %s for vehicle %s to database', element.value, self.vehicle.vin)
+                    self.last_connection_state = new_connection_state
                 except DatabaseError as err:
                     self.session.rollback()
-                    LOG.error('DatabaseError while updating connection state for vehicle %s in database: %s', self.vehicle.vin, err)
+                    LOG.error('DatabaseError while adding connection state for vehicle %s to database: %s', self.vehicle.vin, err)
+            elif self.last_connection_state is not None and self.last_connection_state.connection_state == element.value and element.last_updated is not None:
+                if self.last_connection_state.last_date is None or element.last_updated > self.last_connection_state.last_date:
+                    try:
+                        self.last_connection_state.last_date = element.last_updated
+                        LOG.debug('Updated connection state %s for vehicle %s in database', element.value, self.vehicle.vin)
+                    except DatabaseError as err:
+                        self.session.rollback()
+                        LOG.error('DatabaseError while updating connection state for vehicle %s in database: %s', self.vehicle.vin, err)
 
     def __on_outside_temperature_change(self, element: TemperatureAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
-        if self.last_outside_temperature is not None:
-            self.session.refresh(self.last_outside_temperature)
-        if (self.last_outside_temperature is None or self.last_outside_temperature.outside_temperature != element.value) \
-                and element.last_updated is not None:
-            new_outside_temperature: OutsideTemperature = OutsideTemperature(vin=self.vehicle.vin, first_date=element.last_updated,
-                                                                             last_date=element.last_updated, outside_temperature=element.value)
-            try:
-                self.session.add(new_outside_temperature)
-                self.last_outside_temperature = new_outside_temperature
-            except DatabaseError as err:
-                self.session.rollback()
-                LOG.error('DatabaseError while adding outside temperature for vehicle %s to database: %s', self.vehicle.vin, err)
-        elif self.last_outside_temperature is not None and self.last_outside_temperature.outside_temperature == element.value \
-                and element.last_updated is not None:
-            if self.last_outside_temperature.last_date is None or element.last_updated > self.last_outside_temperature.last_date:
+        if element.enabled:
+            if self.last_outside_temperature is not None:
+                self.session.refresh(self.last_outside_temperature)
+            if (self.last_outside_temperature is None or self.last_outside_temperature.outside_temperature != element.value) \
+                    and element.last_updated is not None:
+                new_outside_temperature: OutsideTemperature = OutsideTemperature(vin=self.vehicle.vin, first_date=element.last_updated,
+                                                                                last_date=element.last_updated, outside_temperature=element.value)
                 try:
-                    self.last_outside_temperature.last_date = element.last_updated
+                    self.session.add(new_outside_temperature)
+                    LOG.debug('Added new outside temperature %.2f for vehicle %s to database', element.value, self.vehicle.vin)
+                    self.last_outside_temperature = new_outside_temperature
                 except DatabaseError as err:
                     self.session.rollback()
-                    LOG.error('DatabaseError while updating outside temperature for vehicle %s in database: %s', self.vehicle.vin, err)
+                    LOG.error('DatabaseError while adding outside temperature for vehicle %s to database: %s', self.vehicle.vin, err)
+            elif self.last_outside_temperature is not None and self.last_outside_temperature.outside_temperature == element.value \
+                    and element.last_updated is not None:
+                if self.last_outside_temperature.last_date is None or element.last_updated > self.last_outside_temperature.last_date:
+                    try:
+                        self.last_outside_temperature.last_date = element.last_updated
+                        LOG.debug('Updated outside temperature %.2f for vehicle %s in database', element.value, self.vehicle.vin)
+                    except DatabaseError as err:
+                        self.session.rollback()
+                        LOG.error('DatabaseError while updating outside temperature for vehicle %s in database: %s', self.vehicle.vin, err)

@@ -7,12 +7,13 @@ import logging
 from sqlalchemy.exc import DatabaseError, IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
-from carconnectivity.vehicle import GenericVehicle
+from carconnectivity.vehicle import GenericVehicle, ElectricVehicle
 from carconnectivity.observable import Observable
 from carconnectivity.attributes import StringAttribute, IntegerAttribute, EnumAttribute
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.agents.state_agent import StateAgent
+from carconnectivity_plugins.database.agents.charging_agent import ChargingAgent
 from carconnectivity_plugins.database.model.base import Base
 from carconnectivity_plugins.database.model.drive import Drive
 
@@ -128,6 +129,10 @@ class Vehicle(Base):
 
         state_agent: StateAgent = StateAgent(session, self)  # type: ignore[assignment]
         self.agents.append(state_agent)
+
+        if isinstance(self.carconnectivity_vehicle, ElectricVehicle):
+            charging_agent: ChargingAgent = ChargingAgent(session, self)  # type: ignore[assignment]
+            self.agents.append(charging_agent)
 
     def __on_name_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
