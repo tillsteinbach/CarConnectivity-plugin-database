@@ -1,10 +1,10 @@
 """ This module contains the Vehicle state database model"""
 from __future__ import annotations
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sqlalchemy_utc import UtcDateTime
@@ -12,6 +12,9 @@ from sqlalchemy_utc import UtcDateTime
 from carconnectivity.vehicle import GenericVehicle
 
 from carconnectivity_plugins.database.model.base import Base
+
+if TYPE_CHECKING:
+    from sqlalchemy import Constraint
 
 
 class State(Base):  # pylint: disable=too-few-public-methods
@@ -36,6 +39,7 @@ class State(Base):  # pylint: disable=too-few-public-methods
         connection_state (GenericVehicle.ConnectionState, optional): The vehicle's connection state.
     """
     __tablename__: str = 'states'
+    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="vin_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vin: Mapped[str] = mapped_column(ForeignKey("vehicles.vin"))

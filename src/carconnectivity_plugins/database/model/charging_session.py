@@ -1,10 +1,10 @@
 """ This module contains the Vehicle charging sessions database model"""
 from __future__ import annotations
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Table, Column
+from sqlalchemy import ForeignKey, Table, Column, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
 
 from sqlalchemy_utc import UtcDateTime
@@ -12,6 +12,10 @@ from sqlalchemy_utc import UtcDateTime
 from carconnectivity.charging import Charging
 
 from carconnectivity_plugins.database.model.base import Base
+
+
+if TYPE_CHECKING:
+    from sqlalchemy import Constraint
 
 
 charging_tag_association_table = Table('charging_sessions_tags', Base.metadata,
@@ -51,6 +55,7 @@ class ChargingSession(Base):  # pylint: disable=too-few-public-methods
     """
 
     __tablename__: str = 'charging_sessions'
+    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "session_start_date", name="vin_session_start_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vin: Mapped[str] = mapped_column(ForeignKey("vehicles.vin"))

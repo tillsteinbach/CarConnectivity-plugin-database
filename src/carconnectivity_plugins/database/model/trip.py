@@ -1,15 +1,18 @@
 """ This module contains the Vehicle trip database model"""
 from __future__ import annotations
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Table, Column
+from sqlalchemy import ForeignKey, Table, Column, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
 
 from sqlalchemy_utc import UtcDateTime
 
 from carconnectivity_plugins.database.model.base import Base
+
+if TYPE_CHECKING:
+    from sqlalchemy import Constraint
 
 
 trip_tag_association_table = Table('trips_tags', Base.metadata,
@@ -22,8 +25,8 @@ class Trip(Base):  # pylint: disable=too-few-public-methods
     """
     Represents a vehicle trip in the database.
 
-    A Trip records information about a journey made by a vehicle, including start and 
-    destination details such as timestamps, positions, and mileage readings. Trips can 
+    A Trip records information about a journey made by a vehicle, including start and
+    destination details such as timestamps, positions, and mileage readings. Trips can
     be associated with tags for categorization and filtering.
 
     Attributes:
@@ -48,6 +51,7 @@ class Trip(Base):  # pylint: disable=too-few-public-methods
         start_odometer (float, optional): Vehicle mileage in kilometers at trip start.
     """
     __tablename__: str = 'trips'
+    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "start_date", name="vin_start_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vin: Mapped[str] = mapped_column(ForeignKey("vehicles.vin"))

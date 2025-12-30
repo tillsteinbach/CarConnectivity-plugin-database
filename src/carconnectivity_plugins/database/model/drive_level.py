@@ -1,15 +1,18 @@
 """ This module contains the Drive level database model"""
 from __future__ import annotations
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sqlalchemy_utc import UtcDateTime
 
 from carconnectivity_plugins.database.model.base import Base
+
+if TYPE_CHECKING:
+    from sqlalchemy import Constraint
 
 
 class DriveLevel(Base):  # pylint: disable=too-few-public-methods
@@ -30,6 +33,7 @@ class DriveLevel(Base):  # pylint: disable=too-few-public-methods
         level (Optional[float]): The battery level value, can be None if unavailable.
     """
     __tablename__: str = 'drive_levels'
+    __table_args__: tuple[Constraint] = (UniqueConstraint("drive_id", "first_date", name="vdrive_id_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     drive_id: Mapped[int] = mapped_column(ForeignKey("drives.id"))

@@ -87,7 +87,8 @@ class Vehicle(Base):
             - Only enabled attributes are synchronized
             - The type attribute is only synchronized if it's not None
         """
-
+        if self.carconnectivity_vehicle is not None:
+            raise ValueError("Can only connect once! Vehicle already connected with database model")
         self.carconnectivity_vehicle = carconnectivity_vehicle
         self.carconnectivity_vehicle.name.add_observer(self.__on_name_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
         if self.carconnectivity_vehicle.name.enabled and self.name != self.carconnectivity_vehicle.name.value:
@@ -131,14 +132,18 @@ class Vehicle(Base):
 
         state_agent: StateAgent = StateAgent(session, self)
         self.agents.append(state_agent)
+        LOG.debug("Adding StateAgent to vehicle %s", self.vin)
         climazination_agent: ClimatizationAgent = ClimatizationAgent(session, self)
         self.agents.append(climazination_agent)
+        LOG.debug("Adding ClimatizationAgent to vehicle %s", self.vin)
         trip_agent: TripAgent = TripAgent(session, self)
         self.agents.append(trip_agent)
+        LOG.debug("Adding TripAgent to vehicle %s", self.vin)
 
         if isinstance(self.carconnectivity_vehicle, ElectricVehicle):
             charging_agent: ChargingAgent = ChargingAgent(session, self)
             self.agents.append(charging_agent)
+            LOG.debug("Adding ChargingAgent to vehicle %s", self.vin)
 
     def __on_name_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
         del flags

@@ -1,15 +1,18 @@
 """ This module contains the Drive range database model"""
 from __future__ import annotations
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sqlalchemy_utc import UtcDateTime
 
 from carconnectivity_plugins.database.model.base import Base
+
+if TYPE_CHECKING:
+    from sqlalchemy import Constraint
 
 
 class DriveRange(Base):  # pylint: disable=too-few-public-methods
@@ -33,6 +36,7 @@ class DriveRange(Base):  # pylint: disable=too-few-public-methods
     """
 
     __tablename__: str = 'drive_ranges'
+    __table_args__: tuple[Constraint] = (UniqueConstraint("drive_id", "first_date", name="drive_id_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     drive_id: Mapped[int] = mapped_column(ForeignKey("drives.id"))

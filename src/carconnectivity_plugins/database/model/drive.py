@@ -2,6 +2,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
+import logging
+
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +18,8 @@ from carconnectivity_plugins.database.model.base import Base
 if TYPE_CHECKING:
     from sqlalchemy.orm.session import Session
     from sqlalchemy import Constraint
+
+LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.model.drive")
 
 
 class Drive(Base):
@@ -72,6 +76,8 @@ class Drive(Base):
             - Automatically syncs the drive type if enabled and has a value
             - Creates and registers a DriveStateAgent for managing drive state
         """
+        if self.carconnectivity_drive is not None:
+            raise ValueError("Can only connect once! Drive already connected with database model")
         self.carconnectivity_drive = carconnectivity_drive
         self.carconnectivity_drive.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
         if self.carconnectivity_drive.type.enabled and self.carconnectivity_drive.type.value is not None \
@@ -80,6 +86,7 @@ class Drive(Base):
 
         drive_state_agent: DriveStateAgent = DriveStateAgent(session, self)  # type: ignore[assignment]
         self.agents.append(drive_state_agent)
+        LOG.debug("Adding DriveStateAgent to drive %s of vehicle %s", self.drive_id, self.vin)
 
     def __on_type_change(self, element: EnumAttribute[GenericDrive.Type], flags: Observable.ObserverEvent) -> None:
         del flags

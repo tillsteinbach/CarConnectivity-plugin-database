@@ -1,15 +1,18 @@
 """ This module contains the Vehicle outside temperature database model"""
 from __future__ import annotations
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from sqlalchemy_utc import UtcDateTime
 
 from carconnectivity_plugins.database.model.base import Base
+
+if TYPE_CHECKING:
+    from sqlalchemy import Constraint
 
 
 class OutsideTemperature(Base):  # pylint: disable=too-few-public-methods
@@ -32,6 +35,7 @@ class OutsideTemperature(Base):  # pylint: disable=too-few-public-methods
         outside_temperature (float, optional): The measured outside temperature value.
     """
     __tablename__: str = 'outside_temperatures'
+    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="vin_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vin: Mapped[str] = mapped_column(ForeignKey("vehicles.vin"))
