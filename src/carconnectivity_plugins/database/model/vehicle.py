@@ -129,6 +129,7 @@ class Vehicle(Base):
                     LOG.error('DatabaseError while adding drive %s for vehicle %s to database: %s', drive_id, self.vin, err)
             else:
                 drive_db.connect(session, drive)
+                LOG.debug('Connecting drive %s for vehicle %s', drive_id, self.vin)
 
         state_agent: StateAgent = StateAgent(session, self)
         self.agents.append(state_agent)
