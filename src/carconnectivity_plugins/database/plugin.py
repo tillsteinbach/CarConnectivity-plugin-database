@@ -145,8 +145,12 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                     vehicle: Vehicle = self.session.get(Vehicle, element.vin.value)
                     if vehicle is None:
                         vehicle = Vehicle(vin=element.vin.value)
-                        vehicle.connect(self.session, element)
-                        self.session.add(vehicle)
+                        try:
+                            self.session.add(vehicle)
+                            vehicle.connect(self.session, element)
+                        except DatabaseError as err:
+                            self.session.rollback()
+                            LOG.error('DatabaseError while adding vehicle %s to database: %s', element.vin.value, err)
                     else:
                         vehicle.connect(self.session, element)
                     self.vehicles[element.vin.value] = vehicle
