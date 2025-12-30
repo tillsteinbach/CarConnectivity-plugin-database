@@ -47,9 +47,8 @@ class DriveStateAgent(BaseAgent):
             new_level: DriveLevel = DriveLevel(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
                                                level=element.value)
             try:
-                with self.session.begin_nested():
-                    self.session.add(new_level)
-                self.session.commit()
+                self.session.add(new_level)
+                self.session.flush()
                 self.last_level = new_level
             except DatabaseError as err:
                 self.session.rollback()

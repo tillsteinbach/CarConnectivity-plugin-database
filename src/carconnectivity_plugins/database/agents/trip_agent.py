@@ -79,9 +79,8 @@ class TripAgent(BaseAgent):
                             self.vehicle.carconnectivity_vehicle.odometer.value is not None:
                         new_trip.start_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
                     try:
-                        with self.session.begin_nested():
-                            self.session.add(new_trip)
-                        self.session.commit()
+                        self.session.add(new_trip)
+                        self.session.flush()
                         self.trip = new_trip
                     except DatabaseError as err:
                         self.session.rollback()

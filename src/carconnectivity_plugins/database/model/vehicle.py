@@ -114,14 +114,13 @@ class Vehicle(Base):
             if drive_db is None:
                 drive_db = Drive(vin=self.vin, drive_id=drive_id)
                 try:
-                    with session.begin_nested():
-                        session.add(drive_db)
-                    session.commit()
+                    session.add(drive_db)
+                    session.flush()
                     LOG.debug('Added new drive %s for vehicle %s to database', drive_id, self.vin)
                     drive_db.connect(session, drive)
-                except IntegrityError:
+                except IntegrityError as err:
                     session.rollback()
-                    LOG.error('IntegrityError while adding drive %s for vehicle %s to database, likely due to concurrent addition', drive_id, self.vin)
+                    LOG.error('IntegrityError while adding drive %s for vehicle %s to database, likely due to concurrent addition: %s', drive_id, self.vin, err)
                 except DatabaseError as err:
                     session.rollback()
                     LOG.error('DatabaseError while adding drive %s for vehicle %s to database: %s', drive_id, self.vin, err)

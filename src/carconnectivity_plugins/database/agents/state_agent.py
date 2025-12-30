@@ -55,9 +55,8 @@ class StateAgent(BaseAgent):
                 and element.last_updated is not None:
             new_state: State = State(vin=self.vehicle.vin, first_date=element.last_updated, last_date=element.last_updated, state=element.value)
             try:
-                with self.session.begin_nested():
-                    self.session.add(new_state)
-                self.session.commit()
+                self.session.add(new_state)
+                self.session.flush()
                 self.last_state = new_state
             except DatabaseError as err:
                 self.session.rollback()
@@ -82,9 +81,8 @@ class StateAgent(BaseAgent):
             new_connection_state: ConnectionState = ConnectionState(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                     last_date=element.last_updated, connection_state=element.value)
             try:
-                with self.session.begin_nested():
-                    self.session.add(new_connection_state)
-                self.session.commit()
+                self.session.add(new_connection_state)
+                self.session.flush()
                 self.last_connection_state = new_connection_state
             except DatabaseError as err:
                 self.session.rollback()
@@ -108,9 +106,8 @@ class StateAgent(BaseAgent):
             new_outside_temperature: OutsideTemperature = OutsideTemperature(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                              last_date=element.last_updated, outside_temperature=element.value)
             try:
-                with self.session.begin_nested():
-                    self.session.add(new_outside_temperature)
-                self.session.commit()
+                self.session.add(new_outside_temperature)
+                self.session.flush()
                 self.last_outside_temperature = new_outside_temperature
             except DatabaseError as err:
                 self.session.rollback()
