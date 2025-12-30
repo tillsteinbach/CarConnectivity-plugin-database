@@ -10,14 +10,13 @@ from carconnectivity.observable import Observable
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.model.trip import Trip
+from carconnectivity.vehicle import GenericVehicle
 
 if TYPE_CHECKING:
     from typing import Optional
     from sqlalchemy.orm.session import Session
 
     from carconnectivity.attributes import EnumAttribute
-
-    from carconnectivity.vehicle import GenericVehicle
 
     from carconnectivity_plugins.database.model.vehicle import Vehicle
 
