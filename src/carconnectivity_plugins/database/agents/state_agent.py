@@ -56,7 +56,6 @@ class StateAgent(BaseAgent):
             new_state: State = State(vin=self.vehicle.vin, first_date=element.last_updated, last_date=element.last_updated, state=element.value)
             try:
                 self.session.add(new_state)
-                self.session.flush()
                 self.last_state = new_state
             except DatabaseError as err:
                 self.session.rollback()
@@ -65,9 +64,7 @@ class StateAgent(BaseAgent):
         elif self.last_state is not None and self.last_state.state == element.value and element.last_updated is not None:
             if self.last_state.last_date is None or element.last_updated > self.last_state.last_date:
                 try:
-                    with self.session.begin_nested():
-                        self.last_state.last_date = element.last_updated
-                    self.session.commit()
+                    self.last_state.last_date = element.last_updated
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while updating state for vehicle %s in database: %s', self.vehicle.vin, err)
@@ -82,7 +79,6 @@ class StateAgent(BaseAgent):
                                                                     last_date=element.last_updated, connection_state=element.value)
             try:
                 self.session.add(new_connection_state)
-                self.session.flush()
                 self.last_connection_state = new_connection_state
             except DatabaseError as err:
                 self.session.rollback()
@@ -90,9 +86,7 @@ class StateAgent(BaseAgent):
         elif self.last_connection_state is not None and self.last_connection_state.connection_state == element.value and element.last_updated is not None:
             if self.last_connection_state.last_date is None or element.last_updated > self.last_connection_state.last_date:
                 try:
-                    with self.session.begin_nested():
-                        self.last_connection_state.last_date = element.last_updated
-                    self.session.commit()
+                    self.last_connection_state.last_date = element.last_updated
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while updating connection state for vehicle %s in database: %s', self.vehicle.vin, err)
@@ -107,7 +101,6 @@ class StateAgent(BaseAgent):
                                                                              last_date=element.last_updated, outside_temperature=element.value)
             try:
                 self.session.add(new_outside_temperature)
-                self.session.flush()
                 self.last_outside_temperature = new_outside_temperature
             except DatabaseError as err:
                 self.session.rollback()
@@ -116,9 +109,7 @@ class StateAgent(BaseAgent):
                 and element.last_updated is not None:
             if self.last_outside_temperature.last_date is None or element.last_updated > self.last_outside_temperature.last_date:
                 try:
-                    with self.session.begin_nested():
-                        self.last_outside_temperature.last_date = element.last_updated
-                    self.session.commit()
+                    self.last_outside_temperature.last_date = element.last_updated
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while updating outside temperature for vehicle %s in database: %s', self.vehicle.vin, err)
