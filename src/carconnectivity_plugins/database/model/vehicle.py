@@ -2,6 +2,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
+import logging
+
+from sqlalchemy.exc import DatabaseError, IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
 from carconnectivity.vehicle import GenericVehicle
@@ -15,6 +18,8 @@ from carconnectivity_plugins.database.model.drive import Drive
 
 if TYPE_CHECKING:
     from sqlalchemy.orm.session import Session
+
+LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.model.vehicle")
 
 
 class Vehicle(Base):
@@ -108,11 +113,20 @@ class Vehicle(Base):
             drive_db: Optional[Drive] = session.query(Drive).filter(Drive.vin == self.vin, Drive.drive_id == drive_id).first()
             if drive_db is None:
                 drive_db = Drive(vin=self.vin, drive_id=drive_id)
-                with session.begin_nested():
-                    session.add(drive_db)
-                session.commit()
-                LOG.debug('Added new drive %s for vehicle %s to database', drive_id, self.vin)
-            drive_db.connect(session, drive)
+                try:
+                    with session.begin_nested():
+                        session.add(drive_db)
+                    session.commit()
+                    LOG.debug('Added new drive %s for vehicle %s to database', drive_id, self.vin)
+                    drive_db.connect(session, drive)
+                except IntegrityError:
+                    session.rollback()
+                    LOG.error('IntegrityError while adding drive %s for vehicle %s to database, likely due to concurrent addition', drive_id, self.vin)
+                except DatabaseError as err:
+                    session.rollback()
+                    LOG.error('DatabaseError while adding drive %s for vehicle %s to database: %s', drive_id, self.vin, err)
+            else:
+                drive_db.connect(session, drive)
 
         state_agent: StateAgent = StateAgent(session, self)  # type: ignore[assignment]
         self.agents.append(state_agent)

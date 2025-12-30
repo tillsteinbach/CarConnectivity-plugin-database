@@ -7,7 +7,7 @@ import logging
 
 from sqlalchemy import Engine, create_engine, text, inspect
 from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.orm.session import Session
 
 from carconnectivity.errors import ConfigurationError
@@ -101,13 +101,19 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                             new_vehicle: Vehicle = self.session.get(Vehicle, garage_vehicle.vin.value)
                             if new_vehicle is None:
                                 new_vehicle: Vehicle = Vehicle(vin=garage_vehicle.vin.value)
-                                self.session.add(new_vehicle)
-                                self.session.commit()
-                                LOG.debug('Added new vehicle %s to database', garage_vehicle.vin.value)
-                                new_vehicle.connect(self.session, garage_vehicle)
+                                try:
+                                    with self.session.begin_nested():
+                                        self.session.add(new_vehicle)
+                                    self.session.commit()
+                                    LOG.debug('Added new vehicle %s to database', garage_vehicle.vin.value)
+                                    new_vehicle.connect(self.session, garage_vehicle)
+                                    self.vehicles[garage_vehicle.vin.value] = new_vehicle
+                                except DatabaseError as err:
+                                    self.session.rollback()
+                                    LOG.error('DatabaseError while adding vehicle %s to database: %s', garage_vehicle.vin.value, err)
                             else:
                                 new_vehicle.connect(self.session, garage_vehicle)
-                            self.vehicles[garage_vehicle.vin.value] = new_vehicle
+                                self.vehicles[garage_vehicle.vin.value] = new_vehicle
 
             except OperationalError as err:
                 LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
