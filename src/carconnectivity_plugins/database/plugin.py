@@ -86,7 +86,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                         run_database_migrations(dsn=self.active_config['db_url'], stamp_only=True)
                     else:
                         LOG.info('It looks like you have an existing database will check if an upgrade is necessary')
-                        Base.metadata.create_all(self.engine) # TODO: remove after some time
+                        Base.metadata.create_all(self.engine)  # TODO: remove after some time
                         run_database_migrations(dsn=self.active_config['db_url'])
                         LOG.info('Database upgrade done')
                     self.session.commit()

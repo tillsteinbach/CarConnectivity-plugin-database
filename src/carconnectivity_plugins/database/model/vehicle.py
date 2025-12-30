@@ -14,6 +14,8 @@ from carconnectivity.attributes import StringAttribute, IntegerAttribute, EnumAt
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.agents.state_agent import StateAgent
 from carconnectivity_plugins.database.agents.charging_agent import ChargingAgent
+from carconnectivity_plugins.database.agents.climatization_agent import ClimatizationAgent
+from carconnectivity_plugins.database.agents.trip_agent import TripAgent
 from carconnectivity_plugins.database.model.base import Base
 from carconnectivity_plugins.database.model.drive import Drive
 
@@ -127,11 +129,15 @@ class Vehicle(Base):
             else:
                 drive_db.connect(session, drive)
 
-        state_agent: StateAgent = StateAgent(session, self)  # type: ignore[assignment]
+        state_agent: StateAgent = StateAgent(session, self)
         self.agents.append(state_agent)
+        climazination_agent: ClimatizationAgent = ClimatizationAgent(session, self)
+        self.agents.append(climazination_agent)
+        trip_agent: TripAgent = TripAgent(session, self)
+        self.agents.append(trip_agent)
 
         if isinstance(self.carconnectivity_vehicle, ElectricVehicle):
-            charging_agent: ChargingAgent = ChargingAgent(session, self)  # type: ignore[assignment]
+            charging_agent: ChargingAgent = ChargingAgent(session, self)
             self.agents.append(charging_agent)
 
     def __on_name_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
