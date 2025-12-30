@@ -48,7 +48,6 @@ class DriveStateAgent(BaseAgent):
                                                level=element.value)
             try:
                 self.session.add(new_level)
-                self.session.flush()
                 self.last_level = new_level
             except DatabaseError as err:
                 self.session.rollback()
@@ -57,9 +56,7 @@ class DriveStateAgent(BaseAgent):
                 and element.last_updated is not None:
             if self.last_level.last_date is None or element.last_updated > self.last_level.last_date:
                 try:
-                    with self.session.begin_nested():
-                        self.last_level.last_date = element.last_updated
-                    self.session.commit()
+                    self.last_level.last_date = element.last_updated
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while updating level for drive %s in database: %s', self.drive.id, err)
@@ -73,9 +70,7 @@ class DriveStateAgent(BaseAgent):
             new_range: DriveRange = DriveRange(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
                                                range=element.value)
             try:
-                with self.session.begin_nested():
-                    self.session.add(new_range)
-                self.session.commit()
+                self.session.add(new_range)
                 self.last_range = new_range
             except DatabaseError as err:
                 self.session.rollback()
@@ -84,9 +79,7 @@ class DriveStateAgent(BaseAgent):
                 and element.last_updated is not None:
             if self.last_range.last_date is None or element.last_updated > self.last_range.last_date:
                 try:
-                    with self.session.begin_nested():
-                        self.last_range.last_date = element.last_updated
-                    self.session.commit()
+                    self.last_range.last_date = element.last_updated
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while updating range for drive %s in database: %s', self.drive.id, err)

@@ -115,7 +115,6 @@ class Vehicle(Base):
                 drive_db = Drive(vin=self.vin, drive_id=drive_id)
                 try:
                     session.add(drive_db)
-                    session.flush()
                     LOG.debug('Added new drive %s for vehicle %s to database', drive_id, self.vin)
                     drive_db.connect(session, drive)
                 except IntegrityError as err:

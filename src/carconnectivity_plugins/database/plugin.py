@@ -103,7 +103,6 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                                 new_vehicle: Vehicle = Vehicle(vin=garage_vehicle.vin.value)
                                 try:
                                     self.session.add(new_vehicle)
-                                    self.session.flush()
                                     LOG.debug('Added new vehicle %s to database', garage_vehicle.vin.value)
                                     new_vehicle.connect(self.session, garage_vehicle)
                                     self.vehicles[garage_vehicle.vin.value] = new_vehicle
@@ -118,7 +117,6 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                 LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
                 self.healthy._set_value(value=False)  # pylint: disable=protected-access
             self._stop_event.wait(10)
-            self.session.commit()  # TODO: so solls natürlich nicht sein
 
     def shutdown(self) -> None:
         self._stop_event.set()
@@ -149,7 +147,6 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                         vehicle = Vehicle(vin=element.vin.value)
                         vehicle.connect(self.session, element)
                         self.session.add(vehicle)
-                        self.session.commit()
                     else:
                         vehicle.connect(self.session, element)
                     self.vehicles[element.vin.value] = vehicle
