@@ -111,6 +111,7 @@ class Vehicle(Base):
                 with session.begin_nested():
                     session.add(drive_db)
                 session.commit()
+                LOG.debug('Added new drive %s for vehicle %s to database', drive_id, self.vin)
             drive_db.connect(session, drive)
 
         state_agent: StateAgent = StateAgent(session, self)  # type: ignore[assignment]

@@ -101,9 +101,10 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                             new_vehicle: Vehicle = self.session.get(Vehicle, garage_vehicle.vin.value)
                             if new_vehicle is None:
                                 new_vehicle: Vehicle = Vehicle(vin=garage_vehicle.vin.value)
-                                new_vehicle.connect(self.session, garage_vehicle)
                                 self.session.add(new_vehicle)
                                 self.session.commit()
+                                LOG.debug('Added new vehicle %s to database', garage_vehicle.vin.value)
+                                new_vehicle.connect(self.session, garage_vehicle)
                             else:
                                 new_vehicle.connect(self.session, garage_vehicle)
                             self.vehicles[garage_vehicle.vin.value] = new_vehicle
