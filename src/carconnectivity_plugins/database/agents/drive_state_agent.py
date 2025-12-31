@@ -10,6 +10,7 @@ from carconnectivity.observable import Observable
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.model.drive_level import DriveLevel
 from carconnectivity_plugins.database.model.drive_range import DriveRange
+from carconnectivity_plugins.database.model.drive_range_full import DriveRangeEstimatedFull
 
 if TYPE_CHECKING:
     from typing import Optional
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.drive_state_agent")
 
+
 class DriveStateAgent(BaseAgent):
     def __init__(self, session: Session, drive: Drive) -> None:
         if drive is None or drive.carconnectivity_drive is None:
@@ -31,6 +33,8 @@ class DriveStateAgent(BaseAgent):
 
         self.last_level: Optional[DriveLevel] = session.query(DriveLevel).filter(DriveLevel.drive_id == drive.id).order_by(DriveLevel.first_date.desc()).first()
         self.last_range: Optional[DriveRange] = session.query(DriveRange).filter(DriveRange.drive_id == drive.id).order_by(DriveRange.first_date.desc()).first()
+        self.last_range_estimated_full: Optional[DriveRangeEstimatedFull] = session.query(DriveRangeEstimatedFull) \
+            .filter(DriveRangeEstimatedFull.drive_id == drive.id).order_by(DriveRangeEstimatedFull.first_date.desc()).first()
 
         drive.carconnectivity_drive.level.add_observer(self.__on_level_change, Observable.ObserverEvent.UPDATED)
         if drive.carconnectivity_drive.level.enabled:
@@ -40,6 +44,10 @@ class DriveStateAgent(BaseAgent):
         if drive.carconnectivity_drive.range.enabled:
             self.__on_range_change(drive.carconnectivity_drive.range, Observable.ObserverEvent.UPDATED)
 
+        drive.carconnectivity_drive.range_estimated_full.add_observer(self.__on_range_estimated_full_change, Observable.ObserverEvent.UPDATED)
+        if drive.carconnectivity_drive.range_estimated_full.enabled:
+            self.__on_range_estimated_full_change(drive.carconnectivity_drive.range_estimated_full, Observable.ObserverEvent.UPDATED)
+
     def __on_level_change(self, element: LevelAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:
@@ -48,7 +56,7 @@ class DriveStateAgent(BaseAgent):
             if (self.last_level is None or self.last_level.level != element.value) \
                     and element.last_updated is not None:
                 new_level: DriveLevel = DriveLevel(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
-                                                level=element.value)
+                                                   level=element.value)
                 try:
                     self.session.add(new_level)
                     LOG.debug('Added new level %s for drive %s to database', element.value, self.drive.id)
@@ -74,7 +82,7 @@ class DriveStateAgent(BaseAgent):
             if (self.last_range is None or self.last_range.range != element.value) \
                     and element.last_updated is not None:
                 new_range: DriveRange = DriveRange(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
-                                                range=element.value)
+                                                   range=element.value)
                 try:
                     self.session.add(new_range)
                     LOG.debug('Added new range %s for drive %s to database', element.value, self.drive.id)
@@ -91,3 +99,29 @@ class DriveStateAgent(BaseAgent):
                     except DatabaseError as err:
                         self.session.rollback()
                         LOG.error('DatabaseError while updating range for drive %s in database: %s', self.drive.id, err)
+
+    def __on_range_estimated_full_change(self, element: RangeAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        if element.enabled:
+            if self.last_range_estimated_full is not None:
+                self.session.refresh(self.last_range_estimated_full)
+            if (self.last_range_estimated_full is None or self.last_range_estimated_full.range_estimated_full != element.value) \
+                    and element.last_updated is not None:
+                new_range: DriveRangeEstimatedFull = DriveRangeEstimatedFull(drive_id=self.drive.id, first_date=element.last_updated,
+                                                                             last_date=element.last_updated, range_estimated_full=element.value)
+                try:
+                    self.session.add(new_range)
+                    LOG.debug('Added new range_estimated_full %s for drive %s to database', element.value, self.drive.id)
+                    self.last_range_estimated_full = new_range
+                except DatabaseError as err:
+                    self.session.rollback()
+                    LOG.error('DatabaseError while adding range_estimated_full for drive %s to database: %s', self.drive.id, err)
+            elif self.last_range_estimated_full is not None and self.last_range_estimated_full.range_estimated_full == element.value \
+                    and element.last_updated is not None:
+                if self.last_range_estimated_full.last_date is None or element.last_updated > self.last_range_estimated_full.last_date:
+                    try:
+                        self.last_range_estimated_full.last_date = element.last_updated
+                        LOG.debug('Updated range_estimated_full %s for drive %s in database', element.value, self.drive.id)
+                    except DatabaseError as err:
+                        self.session.rollback()
+                        LOG.error('DatabaseError while updating range_estimated_full for drive %s in database: %s', self.drive.id, err)

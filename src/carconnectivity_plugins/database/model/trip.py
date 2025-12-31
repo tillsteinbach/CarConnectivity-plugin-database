@@ -60,10 +60,15 @@ class Trip(Base):  # pylint: disable=too-few-public-methods
     destination_date: Mapped[Optional[datetime]] = mapped_column(UtcDateTime)
     start_position_latitude: Mapped[Optional[float]]
     start_position_longitude: Mapped[Optional[float]]
+    start_location_uid: Mapped[Optional[str]] = mapped_column(ForeignKey("locations.uid"))
+    start_location: Mapped[Optional["Location"]] = relationship("Location", foreign_keys=[start_location_uid])
     destination_position_latitude: Mapped[Optional[float]]
     destination_position_longitude: Mapped[Optional[float]]
+    destination_location_uid: Mapped[Optional[str]] = mapped_column(ForeignKey("locations.uid"))
+    destination_location: Mapped[Optional["Location"]] = relationship("Location", foreign_keys=[destination_location_uid])
     start_odometer: Mapped[Optional[float]]
     destination_odometer: Mapped[Optional[float]]
+
     tags: Mapped[list["Tag"]] = relationship("Tag", secondary=trip_tag_association_table, backref=backref("trips"))
 
     # pylint: disable-next=too-many-arguments, too-many-positional-arguments

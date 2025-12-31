@@ -72,7 +72,18 @@ class ChargingSession(Base):  # pylint: disable=too-few-public-methods
     session_position_latitude: Mapped[Optional[float]]
     session_position_longitude: Mapped[Optional[float]]
     session_odometer: Mapped[Optional[float]]
-    charging_type: Mapped[Optional[Charging.ChargingType]]  # TODO remove later
+    charging_type: Mapped[Optional[Charging.ChargingType]]
+    location_uid: Mapped[Optional[str]] = mapped_column(ForeignKey("locations.uid"))
+    location: Mapped[Optional["Location"]] = relationship("Location")
+    charging_station_uid: Mapped[Optional[str]] = mapped_column(ForeignKey("charging_stations.uid"))
+    charging_station: Mapped[Optional["ChargingStation"]] = relationship("ChargingStation")
+    meter_start_kwh = Mapped[Optional[float]]
+    meter_end_kwh = Mapped[Optional[float]]
+    price_per_kwh = Mapped[Optional[float]]
+    price_per_min = Mapped[Optional[float]]
+    price_per_session = Mapped[Optional[float]]
+    real_charged = Mapped[Optional[float]]
+    real_cost = Mapped[Optional[float]]
     tags: Mapped[list["Tag"]] = relationship("Tag", secondary=charging_tag_association_table, backref=backref("charging_sessions"))
 
     # pylint: disable-next=too-many-arguments, too-many-positional-arguments

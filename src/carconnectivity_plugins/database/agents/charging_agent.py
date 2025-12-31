@@ -18,6 +18,8 @@ from carconnectivity_plugins.database.model.charging_state import ChargingState
 from carconnectivity_plugins.database.model.charging_rate import ChargingRate
 from carconnectivity_plugins.database.model.charging_power import ChargingPower
 from carconnectivity_plugins.database.model.charging_session import ChargingSession
+from carconnectivity_plugins.database.model.location import Location
+from carconnectivity_plugins.database.model.charging_station import ChargingStation
 
 if TYPE_CHECKING:
     from typing import Optional
@@ -350,3 +352,22 @@ class ChargingAgent(BaseAgent):
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while updating position for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
+            if charging_session.location is None and self.vehicle.carconnectivity_vehicle.position.location.enabled:
+                location: Location = Location.from_carconnectivity_location(location=self.vehicle.carconnectivity_vehicle.position.location)
+                try:
+                    self.session.merge(location)
+                    charging_session.location = location
+                except DatabaseError as err:
+                    self.session.rollback()
+                    LOG.error('DatabaseError while merging location for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
+        if charging_session.charging_station is None \
+                and isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle) and self.vehicle.carconnectivity_vehicle.charging is not None \
+                and self.vehicle.carconnectivity_vehicle.charging.enabled and self.vehicle.carconnectivity_vehicle.charging.charging_station.enabled:
+            charging_station: ChargingStation = ChargingStation.from_carconnectivity_charging_station(
+                charging_station=self.vehicle.carconnectivity_vehicle.charging.charging_station)
+            try:
+                self.session.merge(charging_station)
+                charging_session.charging_station = charging_station
+            except DatabaseError as err:
+                self.session.rollback()
+                LOG.error('DatabaseError while merging charging station for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
