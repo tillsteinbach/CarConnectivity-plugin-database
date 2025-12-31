@@ -90,7 +90,7 @@ class TripAgent(BaseAgent):
                         if self.trip is not None:
                             LOG.info("Ending trip for vehicle %s", self.vehicle.vin)
                             try:
-                                self.trip.end_date = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
+                                self.trip.destination_date = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
                                 if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
                                         self.vehicle.carconnectivity_vehicle.odometer.value is not None:
                                     self.trip.destination_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
