@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import logging
+from datetime import timedelta
 
 from sqlalchemy import and_
 from sqlalchemy.exc import DatabaseError
@@ -118,17 +119,36 @@ class ChargingAgent(BaseAgent):
         if element.value in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
                 and self.carconnectivity_last_charging_state not in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION):
             if self.last_charging_session is None or self.last_charging_session.is_closed():
-                LOG.info("Starting new charging session for vehicle %s", self.vehicle.vin)
-                new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, session_start_date=element.last_updated)
-                try:
-                    self.session.add(new_session)
-                    LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
-                    self._update_session_odometer(new_session)
-                    self._update_session_position(new_session)
-                    self.last_charging_session = new_session
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                # check that we are not resuming an old session
+                allowed_interrupt: timedelta = timedelta(hours=24)
+                # we allow longer CONSERVATION within the session
+                if element.value == Charging.ChargingState.CONSERVATION:
+                    allowed_interrupt = timedelta(hours=300)
+                # We can reuse the session if the vehicle was connected and not disconnected in the meantime
+                # And the session end date was not set or is within the allowed interrupt time
+                if self.last_charging_session is not None \
+                        and self.last_charging_session.was_connected() and not self.last_charging_session.was_disconnected() \
+                        and (self.last_charging_session.session_end_date is None or element.last_updated is None
+                             or self.last_charging_session.session_end_date > (element.last_updated - allowed_interrupt)):
+                    LOG.debug("Continuing existing charging session for vehicle %s", self.vehicle.vin)
+                    try:
+                        self.last_charging_session.session_end_date = None
+                        self.last_charging_session.end_level = None
+                    except DatabaseError as err:
+                        self.session.rollback()
+                        LOG.error('DatabaseError while updating charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                else:
+                    LOG.info("Starting new charging session for vehicle %s", self.vehicle.vin)
+                    new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, session_start_date=element.last_updated)
+                    try:
+                        self.session.add(new_session)
+                        LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
+                        self._update_session_odometer(new_session)
+                        self._update_session_position(new_session)
+                        self.last_charging_session = new_session
+                    except DatabaseError as err:
+                        self.session.rollback()
+                        LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
             else:
                 if self.last_charging_session.was_started():
                     LOG.debug("Continuing existing charging session for vehicle %s", self.vehicle.vin)
@@ -137,7 +157,7 @@ class ChargingAgent(BaseAgent):
                     try:
                         self.last_charging_session.session_start_date = element.last_updated
                         self._update_session_odometer(self.last_charging_session)
-                        self._update_session_position(new_session)
+                        self._update_session_position(self.last_charging_session)
                     except DatabaseError as err:
                         self.session.rollback()
                         LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
@@ -248,7 +268,7 @@ class ChargingAgent(BaseAgent):
                 try:
                     self.last_charging_session.plug_connected_date = element.last_updated
                     self._update_session_odometer(self.last_charging_session)
-                    self._update_session_position(new_session)
+                    self._update_session_position(self.last_charging_session)
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
@@ -290,7 +310,7 @@ class ChargingAgent(BaseAgent):
                 try:
                     self.last_charging_session.plug_locked_date = element.last_updated
                     self._update_session_odometer(self.last_charging_session)
-                    self._update_session_position(new_session)
+                    self._update_session_position(self.last_charging_session)
                 except DatabaseError as err:
                     self.session.rollback()
                     LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
