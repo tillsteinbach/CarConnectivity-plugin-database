@@ -79,3 +79,7 @@ class Trip(Base):  # pylint: disable=too-few-public-methods
         self.start_position_latitude = start_position_latitude
         self.start_position_longitude = start_position_longitude
         self.start_odometer = start_odometer
+
+    def is_completed(self) -> bool:
+        """Returns True if the trip has been completed (i.e., has a destination date)."""
+        return self.destination_date is not None

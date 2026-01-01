@@ -16,6 +16,7 @@ from carconnectivity_plugins.database.agents.drive_state_agent import DriveState
 from carconnectivity_plugins.database.model.base import Base
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import scoped_session
     from sqlalchemy.orm.session import Session
     from sqlalchemy import Constraint
 
@@ -61,7 +62,7 @@ class Drive(Base):
         self.vin = vin
         self.drive_id = drive_id
 
-    def connect(self, session: Session, carconnectivity_drive: GenericDrive) -> None:
+    def connect(self, session_factory: scoped_session[Session], carconnectivity_drive: GenericDrive) -> None:
         """
         Connect a CarConnectivity drive object to this database model instance.
         This method establishes a connection between the database drive model and a CarConnectivity drive object,
@@ -84,7 +85,7 @@ class Drive(Base):
                 and self.type != self.carconnectivity_drive.type.value:
             self.type = self.carconnectivity_drive.type.value
 
-        drive_state_agent: DriveStateAgent = DriveStateAgent(session, self)  # type: ignore[assignment]
+        drive_state_agent: DriveStateAgent = DriveStateAgent(session_factory, self)  # type: ignore[assignment]
         self.agents.append(drive_state_agent)
         LOG.debug("Adding DriveStateAgent to drive %s of vehicle %s", self.drive_id, self.vin)
 

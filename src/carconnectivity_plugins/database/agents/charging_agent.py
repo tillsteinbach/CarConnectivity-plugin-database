@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+import threading
+
 import logging
 from datetime import timedelta
 
@@ -22,6 +24,7 @@ from carconnectivity_plugins.database.model.charging_station import ChargingStat
 
 if TYPE_CHECKING:
     from typing import Optional
+    from sqlalchemy.orm import scoped_session
     from sqlalchemy.orm.session import Session
 
     from carconnectivity.attributes import EnumAttribute, SpeedAttribute, PowerAttribute
@@ -34,349 +37,400 @@ LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents
 
 class ChargingAgent(BaseAgent):
 
-    def __init__(self, session: Session, vehicle: Vehicle) -> None:
+    def __init__(self, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
         if vehicle is None or vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle or its carconnectivity_vehicle attribute is None")
         if not isinstance(vehicle.carconnectivity_vehicle, ElectricVehicle):
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is not an ElectricVehicle")
-        self.session: Session = session
+        self.session_factory: scoped_session[Session] = session_factory
         self.vehicle: Vehicle = vehicle
 
-        self.last_charging_session: Optional[ChargingSession] = session.query(ChargingSession).filter(ChargingSession.vehicle == vehicle) \
-            .order_by(ChargingSession.session_start_date.desc()).first()
-        self.carconnectivity_last_charging_state: Optional[Charging.ChargingState] = vehicle.carconnectivity_vehicle.charging.state.value
-        self.carconnectivity_last_connector_state: Optional[ChargingConnector.ChargingConnectorConnectionState] = vehicle.carconnectivity_vehicle.charging\
-            .connector.connection_state.value
-        self.carconnectivity_last_connector_lock_state: Optional[ChargingConnector.ChargingConnectorLockState] = vehicle.carconnectivity_vehicle.charging\
-            .connector.lock_state.value
-        if self.last_charging_session is not None and not self.last_charging_session.is_closed():
-            if vehicle.carconnectivity_vehicle.charging.state.value in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
-                or (vehicle.carconnectivity_vehicle.charging.connector.connection_state.enabled
-                    and vehicle.carconnectivity_vehicle.charging.connector.connection_state.value ==
-                    ChargingConnector.ChargingConnectorConnectionState.CONNECTED) \
-                or (vehicle.carconnectivity_vehicle.charging.connector.lock_state.enabled
-                    and vehicle.carconnectivity_vehicle.charging.connector.lock_state.value == ChargingConnector.ChargingConnectorLockState.LOCKED):
-                LOG.info("Last charging session for vehicle %s is still open during startup, will continue this session", vehicle.vin)
+        with self.session_factory() as session:
+            self.last_charging_session: Optional[ChargingSession] = session.query(ChargingSession).filter(ChargingSession.vehicle == vehicle) \
+                .order_by(ChargingSession.session_start_date.desc()).first()
+            self.carconnectivity_last_charging_state: Optional[Charging.ChargingState] = vehicle.carconnectivity_vehicle.charging.state.value
+            self.carconnectivity_last_connector_state: Optional[ChargingConnector.ChargingConnectorConnectionState] = vehicle.carconnectivity_vehicle.charging\
+                .connector.connection_state.value
+            self.carconnectivity_last_connector_lock_state: Optional[ChargingConnector.ChargingConnectorLockState] = vehicle.carconnectivity_vehicle.charging\
+                .connector.lock_state.value
+            if self.last_charging_session is not None and not self.last_charging_session.is_closed():
+                if vehicle.carconnectivity_vehicle.charging.state.value in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
+                    or (vehicle.carconnectivity_vehicle.charging.connector.connection_state.enabled
+                        and vehicle.carconnectivity_vehicle.charging.connector.connection_state.value ==
+                        ChargingConnector.ChargingConnectorConnectionState.CONNECTED) \
+                    or (vehicle.carconnectivity_vehicle.charging.connector.lock_state.enabled
+                        and vehicle.carconnectivity_vehicle.charging.connector.lock_state.value == ChargingConnector.ChargingConnectorLockState.LOCKED):
+                    LOG.info("Last charging session for vehicle %s is still open during startup, will continue this session", vehicle.vin)
+                else:
+                    LOG.info("Last charging session for vehicle %s is still open during startup, but we are not charging, ignoring it", vehicle.vin)
+                    self.last_charging_session = None
             else:
-                LOG.info("Last charging session for vehicle %s is still open during startup, but we are not charging, ignoring it", vehicle.vin)
                 self.last_charging_session = None
-        else:
-            self.last_charging_session = None
 
-        self.last_charging_state: Optional[ChargingState] = session.query(ChargingState).filter(ChargingState.vehicle == vehicle)\
-            .order_by(ChargingState.first_date.desc()).first()
-        self.last_charging_rate: Optional[ChargingRate] = session.query(ChargingRate).filter(ChargingRate.vehicle == vehicle)\
-            .order_by(ChargingRate.first_date.desc()).first()
-        self.last_charging_power: Optional[ChargingPower] = session.query(ChargingPower).filter(ChargingPower.vehicle == vehicle)\
-            .order_by(ChargingPower.first_date.desc()).first()
+            self.last_charging_state: Optional[ChargingState] = session.query(ChargingState).filter(ChargingState.vehicle == vehicle)\
+                .order_by(ChargingState.first_date.desc()).first()
+            self.last_charging_state_lock: threading.Lock = threading.Lock()
 
-        vehicle.carconnectivity_vehicle.charging.connector.connection_state.add_observer(self.__on_connector_state_change, Observable.ObserverEvent.UPDATED)
-        if vehicle.carconnectivity_vehicle.charging.connector.connection_state.enabled:
-            self.__on_connector_state_change(vehicle.carconnectivity_vehicle.charging.connector.connection_state, Observable.ObserverEvent.UPDATED)
+            self.last_charging_rate: Optional[ChargingRate] = session.query(ChargingRate).filter(ChargingRate.vehicle == vehicle)\
+                .order_by(ChargingRate.first_date.desc()).first()
+            self.last_charging_rate_lock: threading.Lock = threading.Lock()
 
-        vehicle.carconnectivity_vehicle.charging.connector.lock_state.add_observer(self.__on_connector_lock_state_change, Observable.ObserverEvent.UPDATED)
-        if vehicle.carconnectivity_vehicle.charging.connector.lock_state.enabled:
-            self.__on_connector_lock_state_change(vehicle.carconnectivity_vehicle.charging.connector.lock_state, Observable.ObserverEvent.UPDATED)
+            self.last_charging_power: Optional[ChargingPower] = session.query(ChargingPower).filter(ChargingPower.vehicle == vehicle)\
+                .order_by(ChargingPower.first_date.desc()).first()
+            self.last_charging_power_lock: threading.Lock = threading.Lock()
 
-        vehicle.carconnectivity_vehicle.charging.state.add_observer(self.__on_charging_state_change, Observable.ObserverEvent.UPDATED)
-        if vehicle.carconnectivity_vehicle.charging.state.enabled:
-            self.__on_charging_state_change(vehicle.carconnectivity_vehicle.charging.state, Observable.ObserverEvent.UPDATED)
+            vehicle.carconnectivity_vehicle.charging.connector.connection_state.add_observer(self.__on_connector_state_change, Observable.ObserverEvent.UPDATED)
+            if vehicle.carconnectivity_vehicle.charging.connector.connection_state.enabled:
+                self.__on_connector_state_change(vehicle.carconnectivity_vehicle.charging.connector.connection_state, Observable.ObserverEvent.UPDATED)
 
-        vehicle.carconnectivity_vehicle.charging.rate.add_observer(self.__on_charging_rate_change, Observable.ObserverEvent.UPDATED)
-        if vehicle.carconnectivity_vehicle.charging.rate.enabled:
-            self.__on_charging_rate_change(vehicle.carconnectivity_vehicle.charging.rate, Observable.ObserverEvent.UPDATED)
+            vehicle.carconnectivity_vehicle.charging.connector.lock_state.add_observer(self.__on_connector_lock_state_change, Observable.ObserverEvent.UPDATED)
+            if vehicle.carconnectivity_vehicle.charging.connector.lock_state.enabled:
+                self.__on_connector_lock_state_change(vehicle.carconnectivity_vehicle.charging.connector.lock_state, Observable.ObserverEvent.UPDATED)
 
-        vehicle.carconnectivity_vehicle.charging.power.add_observer(self.__on_charging_power_change, Observable.ObserverEvent.UPDATED)
-        if vehicle.carconnectivity_vehicle.charging.power.enabled:
-            self.__on_charging_power_change(vehicle.carconnectivity_vehicle.charging.power, Observable.ObserverEvent.UPDATED)
+            vehicle.carconnectivity_vehicle.charging.state.add_observer(self.__on_charging_state_change, Observable.ObserverEvent.UPDATED)
+            if vehicle.carconnectivity_vehicle.charging.state.enabled:
+                self.__on_charging_state_change(vehicle.carconnectivity_vehicle.charging.state, Observable.ObserverEvent.UPDATED)
+
+            vehicle.carconnectivity_vehicle.charging.rate.add_observer(self.__on_charging_rate_change, Observable.ObserverEvent.UPDATED)
+            if vehicle.carconnectivity_vehicle.charging.rate.enabled:
+                self.__on_charging_rate_change(vehicle.carconnectivity_vehicle.charging.rate, Observable.ObserverEvent.UPDATED)
+
+            vehicle.carconnectivity_vehicle.charging.power.add_observer(self.__on_charging_power_change, Observable.ObserverEvent.UPDATED)
+            if vehicle.carconnectivity_vehicle.charging.power.enabled:
+                self.__on_charging_power_change(vehicle.carconnectivity_vehicle.charging.power, Observable.ObserverEvent.UPDATED)
+        self.session_factory.remove()
 
     def __on_charging_state_change(self, element: EnumAttribute[Charging.ChargingState], flags: Observable.ObserverEvent) -> None:
         del flags
         if self.vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
 
-        if self.last_charging_state is not None:
-            self.session.refresh(self.last_charging_state)
-        if (self.last_charging_state is None or self.last_charging_state.state != element.value) \
-                and element.last_updated is not None:
-            new_charging_state: ChargingState = ChargingState(vin=self.vehicle.vin, first_date=element.last_updated,
-                                                              last_date=element.last_updated, state=element.value)
-            try:
-                self.session.add(new_charging_state)
-                LOG.debug('Added new charging state %s for vehicle %s to database', element.value, self.vehicle.vin)
-                self.last_charging_state = new_charging_state
-            except DatabaseError as err:
-                self.session.rollback()
-                LOG.error('DatabaseError while adding charging state for vehicle %s to database: %s', self.vehicle.vin, err)
-
-        elif self.last_charging_state is not None and self.last_charging_state.state == element.value and element.last_updated is not None:
-            if self.last_charging_state.last_date is None or element.last_updated > self.last_charging_state.last_date:
-                try:
-                    self.last_charging_state.last_date = element.last_updated
-                    LOG.debug('Updated charging state %s for vehicle %s in database', element.value, self.vehicle.vin)
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while updating charging state for vehicle %s in database: %s', self.vehicle.vin, err)
-
-        if self.last_charging_session is not None:
-            self.session.refresh(self.last_charging_session)
-
-        if element.value in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
-                and self.carconnectivity_last_charging_state not in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION):
-            if self.last_charging_session is None or self.last_charging_session.is_closed():
-                # check that we are not resuming an old session
-                allowed_interrupt: timedelta = timedelta(hours=24)
-                # we allow longer CONSERVATION within the session
-                if element.value == Charging.ChargingState.CONSERVATION:
-                    allowed_interrupt = timedelta(hours=300)
-                # We can reuse the session if the vehicle was connected and not disconnected in the meantime
-                # And the session end date was not set or is within the allowed interrupt time
-                if self.last_charging_session is not None \
-                        and self.last_charging_session.was_connected() and not self.last_charging_session.was_disconnected() \
-                        and (self.last_charging_session.session_end_date is None or element.last_changed is None
-                             or self.last_charging_session.session_end_date > (element.last_changed - allowed_interrupt)):
-                    LOG.debug("Continuing existing charging session for vehicle %s", self.vehicle.vin)
-                    try:
-                        self.last_charging_session.session_end_date = None
-                        self.last_charging_session.end_level = None
-                    except DatabaseError as err:
-                        self.session.rollback()
-                        LOG.error('DatabaseError while updating charging session for vehicle %s in database: %s', self.vehicle.vin, err)
-                else:
-                    LOG.info("Starting new charging session for vehicle %s", self.vehicle.vin)
-                    new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, session_start_date=element.last_changed)
-                    try:
-                        self.session.add(new_session)
-                        LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
-                        self._update_session_odometer(new_session)
-                        self._update_session_position(new_session)
-                        self._update_session_charging_type(new_session)
-                        self.last_charging_session = new_session
-                    except DatabaseError as err:
-                        self.session.rollback()
-                        LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-            else:
-                if self.last_charging_session.was_started():
-                    LOG.debug("Continuing existing charging session for vehicle %s", self.vehicle.vin)
-                else:
-                    LOG.debug("Starting charging in existing charging session for vehicle %s", self.vehicle.vin)
-                    try:
-                        self.last_charging_session.session_start_date = element.last_changed
-                        self._update_session_odometer(self.last_charging_session)
-                        self._update_session_position(self.last_charging_session)
-                        self._update_session_charging_type(self.last_charging_session)
-                    except DatabaseError as err:
-                        self.session.rollback()
-                        LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
-            # Update startlevel at beginning of charging
-            if self.last_charging_session is not None and isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle):
-                electric_drive: Optional[ElectricDrive] = self.vehicle.carconnectivity_vehicle.get_electric_drive()
-                if electric_drive is not None and electric_drive.level.enabled and electric_drive.level.value is not None:
-                    try:
-                        self.last_charging_session.start_level = electric_drive.level.value
-                    except DatabaseError as err:
-                        self.session.rollback()
-                        LOG.error('DatabaseError while setting start level for vehicle %s in database: %s', self.vehicle.vin, err)
-        elif element.value not in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
-                and self.carconnectivity_last_charging_state in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION):
-            if self.last_charging_session is not None and not self.last_charging_session.was_ended():
-                LOG.info("Ending charging session for vehicle %s", self.vehicle.vin)
-                try:
-                    self.last_charging_session.session_end_date = element.last_changed
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while ending charging session for vehicle %s in database: %s', self.vehicle.vin, err)
-                if isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle):
-                    electric_drive: Optional[ElectricDrive] = self.vehicle.carconnectivity_vehicle.get_electric_drive()
-                    if electric_drive is not None and electric_drive.level.enabled and electric_drive.level.value is not None:
+        if element.enabled:
+            with self.session_factory() as session:
+                with self.last_charging_state_lock:
+                    if self.last_charging_state is not None:
+                        self.last_charging_state = session.merge(self.last_charging_state)
+                        session.refresh(self.last_charging_state)
+                    if (self.last_charging_state is None or self.last_charging_state.state != element.value) \
+                            and element.last_updated is not None:
+                        new_charging_state: ChargingState = ChargingState(vin=self.vehicle.vin, first_date=element.last_updated,
+                                                                          last_date=element.last_updated, state=element.value)
                         try:
-                            self.last_charging_session.end_level = electric_drive.level.value
+                            session.add(new_charging_state)
+                            session.commit()
+                            LOG.debug('Added new charging state %s for vehicle %s to database', element.value, self.vehicle.vin)
+                            self.last_charging_state = new_charging_state
                         except DatabaseError as err:
-                            self.session.rollback()
-                            LOG.error('DatabaseError while setting start level for vehicle %s in database: %s', self.vehicle.vin, err)
+                            session.rollback()
+                            LOG.error('DatabaseError while adding charging state for vehicle %s to database: %s', self.vehicle.vin, err)
 
-        self.carconnectivity_last_charging_state = element.value
+                    elif self.last_charging_state is not None and self.last_charging_state.state == element.value and element.last_updated is not None:
+                        if self.last_charging_state.last_date is None or element.last_updated > self.last_charging_state.last_date:
+                            try:
+                                self.last_charging_state.last_date = element.last_updated
+                                session.commit()
+                                LOG.debug('Updated charging state %s for vehicle %s in database', element.value, self.vehicle.vin)
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while updating charging state for vehicle %s in database: %s', self.vehicle.vin, err)
+
+                if self.last_charging_session is not None:
+                    self.last_charging_session = session.merge(self.last_charging_session)
+                    session.refresh(self.last_charging_session)
+
+                if element.value in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
+                        and self.carconnectivity_last_charging_state not in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION):
+                    if self.last_charging_session is None or self.last_charging_session.is_closed():
+                        # check that we are not resuming an old session
+                        allowed_interrupt: timedelta = timedelta(hours=24)
+                        # we allow longer CONSERVATION within the session
+                        if element.value == Charging.ChargingState.CONSERVATION:
+                            allowed_interrupt = timedelta(hours=300)
+                        # We can reuse the session if the vehicle was connected and not disconnected in the meantime
+                        # And the session end date was not set or is within the allowed interrupt time
+                        if self.last_charging_session is not None \
+                                and self.last_charging_session.was_connected() and not self.last_charging_session.was_disconnected() \
+                                and (self.last_charging_session.session_end_date is None or element.last_changed is None
+                                     or self.last_charging_session.session_end_date > (element.last_changed - allowed_interrupt)):
+                            LOG.debug("Continuing existing charging session for vehicle %s", self.vehicle.vin)
+                            try:
+                                self.last_charging_session.session_end_date = None
+                                self.last_charging_session.end_level = None
+                                session.commit()
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while updating charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                        else:
+                            LOG.info("Starting new charging session for vehicle %s", self.vehicle.vin)
+                            new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, session_start_date=element.last_changed)
+                            try:
+                                session.add(new_session)
+                                LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
+                                self._update_session_odometer(session, new_session)
+                                self._update_session_position(session, new_session)
+                                self._update_session_charging_type(session, new_session)
+                                self.last_charging_session = new_session
+                                session.commit()
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                    else:
+                        if self.last_charging_session.was_started():
+                            LOG.debug("Continuing existing charging session for vehicle %s", self.vehicle.vin)
+                        else:
+                            LOG.debug("Starting charging in existing charging session for vehicle %s", self.vehicle.vin)
+                            try:
+                                self.last_charging_session.session_start_date = element.last_changed
+                                self._update_session_odometer(session, self.last_charging_session)
+                                self._update_session_position(session, self.last_charging_session)
+                                self._update_session_charging_type(session, self.last_charging_session)
+                                session.commit()
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                    # Update startlevel at beginning of charging
+                    if self.last_charging_session is not None and isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle):
+                        electric_drive: Optional[ElectricDrive] = self.vehicle.carconnectivity_vehicle.get_electric_drive()
+                        if electric_drive is not None and electric_drive.level.enabled and electric_drive.level.value is not None:
+                            try:
+                                self.last_charging_session.start_level = electric_drive.level.value
+                                session.commit()
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while setting start level for vehicle %s in database: %s', self.vehicle.vin, err)
+                elif element.value not in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
+                        and self.carconnectivity_last_charging_state in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION):
+                    if self.last_charging_session is not None and not self.last_charging_session.was_ended():
+                        LOG.info("Ending charging session for vehicle %s", self.vehicle.vin)
+                        try:
+                            self.last_charging_session.session_end_date = element.last_changed
+                            session.commit()
+                        except DatabaseError as err:
+                            session.rollback()
+                            LOG.error('DatabaseError while ending charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                        if isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle):
+                            electric_drive: Optional[ElectricDrive] = self.vehicle.carconnectivity_vehicle.get_electric_drive()
+                            if electric_drive is not None and electric_drive.level.enabled and electric_drive.level.value is not None:
+                                try:
+                                    self.last_charging_session.end_level = electric_drive.level.value
+                                    session.commit()
+                                except DatabaseError as err:
+                                    session.rollback()
+                                    LOG.error('DatabaseError while setting start level for vehicle %s in database: %s', self.vehicle.vin, err)
+
+                self.carconnectivity_last_charging_state = element.value
+            self.session_factory.remove()
 
     def __on_charging_rate_change(self, element: SpeedAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if self.vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
-        if self.last_charging_rate is not None:
-            self.session.refresh(self.last_charging_rate)
-        if (self.last_charging_rate is None or self.last_charging_rate.rate != element.value) \
-                and element.last_updated is not None:
-            new_charging_rate: ChargingRate = ChargingRate(vin=self.vehicle.vin, first_date=element.last_updated,
-                                                           last_date=element.last_updated, rate=element.value)
-            try:
-                self.session.add(new_charging_rate)
-                LOG.debug('Added new charging rate %s for vehicle %s to database', element.value, self.vehicle.vin)
-                self.last_charging_rate = new_charging_rate
-            except DatabaseError as err:
-                self.session.rollback()
-                LOG.error('DatabaseError while adding charging rate for vehicle %s to database: %s', self.vehicle.vin, err)
-        elif self.last_charging_rate is not None and self.last_charging_rate.rate == element.value and element.last_updated is not None:
-            if self.last_charging_rate.last_date is None or element.last_updated > self.last_charging_rate.last_date:
-                try:
-                    self.last_charging_rate.last_date = element.last_updated
-                    LOG.debug('Updated charging rate %s for vehicle %s in database', element.value, self.vehicle.vin)
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while updating charging rate for vehicle %s in database: %s', self.vehicle.vin, err)
+        if element.enabled:
+            with self.last_charging_rate_lock:
+                with self.session_factory() as session:
+                    if self.last_charging_rate is not None:
+                        self.last_charging_rate = session.merge(self.last_charging_rate)
+                        session.refresh(self.last_charging_rate)
+                    if (self.last_charging_rate is None or self.last_charging_rate.rate != element.value) \
+                            and element.last_updated is not None:
+                        new_charging_rate: ChargingRate = ChargingRate(vin=self.vehicle.vin, first_date=element.last_updated,
+                                                                       last_date=element.last_updated, rate=element.value)
+                        try:
+                            session.add(new_charging_rate)
+                            session.commit()
+                            LOG.debug('Added new charging rate %s for vehicle %s to database', element.value, self.vehicle.vin)
+                            self.last_charging_rate = new_charging_rate
+                        except DatabaseError as err:
+                            session.rollback()
+                            LOG.error('DatabaseError while adding charging rate for vehicle %s to database: %s', self.vehicle.vin, err)
+                    elif self.last_charging_rate is not None and self.last_charging_rate.rate == element.value and element.last_updated is not None:
+                        if self.last_charging_rate.last_date is None or element.last_updated > self.last_charging_rate.last_date:
+                            try:
+                                self.last_charging_rate.last_date = element.last_updated
+                                session.commit()
+                                LOG.debug('Updated charging rate %s for vehicle %s in database', element.value, self.vehicle.vin)
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while updating charging rate for vehicle %s in database: %s', self.vehicle.vin, err)
+                self.session_factory.remove()
 
     def __on_charging_power_change(self, element: PowerAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if self.vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
-        if self.last_charging_power is not None:
-            self.session.refresh(self.last_charging_power)
-        if (self.last_charging_power is None or self.last_charging_power.power != element.value) \
-                and element.last_updated is not None:
-            new_charging_power: ChargingPower = ChargingPower(vin=self.vehicle.vin, first_date=element.last_updated,
-                                                              last_date=element.last_updated, power=element.value)
-            try:
-                self.session.add(new_charging_power)
-                LOG.debug('Added new charging power %s for vehicle %s to database', element.value, self.vehicle.vin)
-                self.last_charging_power = new_charging_power
-            except DatabaseError as err:
-                self.session.rollback()
-                LOG.error('DatabaseError while adding charging power for vehicle %s to database: %s', self.vehicle.vin, err)
-        elif self.last_charging_power is not None and self.last_charging_power.power == element.value and element.last_updated is not None:
-            if self.last_charging_power.last_date is None or element.last_updated > self.last_charging_power.last_date:
-                try:
-                    self.last_charging_power.last_date = element.last_updated
-                    LOG.debug('Updated charging power %s for vehicle %s in database', element.value, self.vehicle.vin)
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while updating charging power for vehicle %s in database: %s', self.vehicle.vin, err)
+        if element.enabled:
+            with self.last_charging_power_lock:
+                with self.session_factory() as session:
+                    if self.last_charging_power is not None:
+                        self.last_charging_power = session.merge(self.last_charging_power)
+                        session.refresh(self.last_charging_power)
+                    if (self.last_charging_power is None or self.last_charging_power.power != element.value) \
+                            and element.last_updated is not None:
+                        new_charging_power: ChargingPower = ChargingPower(vin=self.vehicle.vin, first_date=element.last_updated,
+                                                                          last_date=element.last_updated, power=element.value)
+                        try:
+                            session.add(new_charging_power)
+                            session.commit()
+                            LOG.debug('Added new charging power %s for vehicle %s to database', element.value, self.vehicle.vin)
+                            self.last_charging_power = new_charging_power
+                        except DatabaseError as err:
+                            session.rollback()
+                            LOG.error('DatabaseError while adding charging power for vehicle %s to database: %s', self.vehicle.vin, err)
+                    elif self.last_charging_power is not None and self.last_charging_power.power == element.value and element.last_updated is not None:
+                        if self.last_charging_power.last_date is None or element.last_updated > self.last_charging_power.last_date:
+                            try:
+                                self.last_charging_power.last_date = element.last_updated
+                                LOG.debug('Updated charging power %s for vehicle %s in database', element.value, self.vehicle.vin)
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while updating charging power for vehicle %s in database: %s', self.vehicle.vin, err)
+                self.session_factory.remove()
 
     def __on_connector_state_change(self, element: EnumAttribute[ChargingConnector.ChargingConnectorConnectionState], flags: Observable.ObserverEvent) -> None:
         del flags
         if self.vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
-        if self.last_charging_session is not None:
-            self.session.refresh(self.last_charging_session)
 
-        if element.value == ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
-                and self.carconnectivity_last_connector_state != ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
-            if self.last_charging_session is None or self.last_charging_session.is_closed():
-                LOG.info("Starting new charging session for vehicle %s  due to connector connected state", self.vehicle.vin)
-                new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_connected_date=element.last_changed)
-                try:
-                    self.session.add(new_session)
-                    self._update_session_odometer(new_session)
-                    self._update_session_position(new_session)
-                    LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
-                    self.last_charging_session = new_session
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-            elif not self.last_charging_session.was_connected():
-                LOG.debug("Continuing existing charging session for vehicle %s, writing connected date", self.vehicle.vin)
-                try:
-                    self.last_charging_session.plug_connected_date = element.last_changed
-                    self._update_session_odometer(self.last_charging_session)
-                    self._update_session_position(self.last_charging_session)
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
-        elif element.value != ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
-                and self.carconnectivity_last_connector_state == ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
-            if self.last_charging_session is not None and not self.last_charging_session.was_disconnected():
-                LOG.info("Writing plug disconnected date for charging session of vehicle %s", self.vehicle.vin)
-                try:
-                    self.last_charging_session.plug_disconnected_date = element.last_changed
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while ending charging session for vehicle %s in database: %s', self.vehicle.vin, err)
-        # Create charging session when connected at startup
-        elif element.value == ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
-                and self.carconnectivity_last_connector_state == ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
-            if self.last_charging_session is None or self.last_charging_session.is_closed():
-                LOG.info("Starting new charging session for vehicle %s due to connector connected state", self.vehicle.vin)
-                new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_connected_date=element.last_changed)
-                try:
-                    self.session.add(new_session)
-                    self._update_session_odometer(new_session)
-                    self._update_session_position(new_session)
-                    LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
-                    self.last_charging_session = new_session
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-            elif self.last_charging_session is not None and not self.last_charging_session.was_connected():
-                try:
-                    self.last_charging_session.plug_connected_date = element.last_changed
-                    LOG.info("Writing plug connected date for charging session of vehicle %s", self.vehicle.vin)
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while changing charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-        self.carconnectivity_last_connector_state = element.value
+        with self.session_factory() as session:
+            if self.last_charging_session is not None:
+                self.last_charging_session = session.merge(self.last_charging_session)
+                session.refresh(self.last_charging_session)
+
+            if element.value == ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
+                    and self.carconnectivity_last_connector_state != ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
+                if self.last_charging_session is None or self.last_charging_session.is_closed():
+                    LOG.info("Starting new charging session for vehicle %s  due to connector connected state", self.vehicle.vin)
+                    new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_connected_date=element.last_changed)
+                    try:
+                        session.add(new_session)
+                        self._update_session_odometer(session, new_session)
+                        self._update_session_position(session, new_session)
+                        session.commit()
+                        LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
+                        self.last_charging_session = new_session
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                elif not self.last_charging_session.was_connected():
+                    LOG.debug("Continuing existing charging session for vehicle %s, writing connected date", self.vehicle.vin)
+                    try:
+                        self.last_charging_session.plug_connected_date = element.last_changed
+                        self._update_session_odometer(session, self.last_charging_session)
+                        self._update_session_position(session, self.last_charging_session)
+                        session.commit()
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+            elif element.value != ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
+                    and self.carconnectivity_last_connector_state == ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
+                if self.last_charging_session is not None and not self.last_charging_session.was_disconnected():
+                    LOG.info("Writing plug disconnected date for charging session of vehicle %s", self.vehicle.vin)
+                    try:
+                        self.last_charging_session.plug_disconnected_date = element.last_changed
+                        session.commit()
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while ending charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+            # Create charging session when connected at startup
+            elif element.value == ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
+                    and self.carconnectivity_last_connector_state == ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
+                if self.last_charging_session is None or self.last_charging_session.is_closed():
+                    LOG.info("Starting new charging session for vehicle %s due to connector connected state", self.vehicle.vin)
+                    new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_connected_date=element.last_changed)
+                    try:
+                        session.add(new_session)
+                        self._update_session_odometer(session, new_session)
+                        self._update_session_position(session, new_session)
+                        session.commit()
+                        LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
+                        self.last_charging_session = new_session
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                elif self.last_charging_session is not None and not self.last_charging_session.was_connected():
+                    try:
+                        self.last_charging_session.plug_connected_date = element.last_changed
+                        session.commit()
+                        LOG.info("Writing plug connected date for charging session of vehicle %s", self.vehicle.vin)
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while changing charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+            self.carconnectivity_last_connector_state = element.value
+        self.session_factory.remove()
 
     def __on_connector_lock_state_change(self, element: EnumAttribute[ChargingConnector.ChargingConnectorLockState], flags: Observable.ObserverEvent) -> None:
         del flags
         if self.vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
 
-        if self.last_charging_session is not None:
-            self.session.refresh(self.last_charging_session)
+        with self.session_factory() as session:
+            if self.last_charging_session is not None:
+                self.last_charging_session = session.merge(self.last_charging_session)
+                session.refresh(self.last_charging_session)
 
-        if element.value == ChargingConnector.ChargingConnectorLockState.LOCKED \
-                and self.carconnectivity_last_connector_lock_state != ChargingConnector.ChargingConnectorLockState.LOCKED:
-            if self.last_charging_session is None or self.last_charging_session.is_closed():
-                LOG.info("Starting new charging session for vehicle %s due to connector locked state", self.vehicle.vin)
-                new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_locked_date=element.last_changed)
-                try:
-                    self.session.add(new_session)
-                    self._update_session_odometer(new_session)
-                    self._update_session_position(new_session)
-                    LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
-                    self.last_charging_session = new_session
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-            elif not self.last_charging_session.was_locked():
-                LOG.debug("Continuing existing charging session for vehicle %s, writing locked date", self.vehicle.vin)
-                try:
-                    self.last_charging_session.plug_locked_date = element.last_changed
-                    self._update_session_odometer(self.last_charging_session)
-                    self._update_session_position(self.last_charging_session)
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
-        elif element.value != ChargingConnector.ChargingConnectorLockState.LOCKED \
-                and self.carconnectivity_last_connector_lock_state == ChargingConnector.ChargingConnectorLockState.LOCKED:
-            if self.last_charging_session is not None and not self.last_charging_session.was_unlocked():
-                LOG.info("Writing plug unlocked date for charging session of vehicle %s", self.vehicle.vin)
-                try:
-                    self.last_charging_session.plug_unlocked_date = element.last_changed
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while ending charging session for vehicle %s in database: %s', self.vehicle.vin, err)
-        # Create charging session when locked at startup
-        elif element.value == ChargingConnector.ChargingConnectorLockState.LOCKED \
-                and self.carconnectivity_last_connector_lock_state == ChargingConnector.ChargingConnectorLockState.LOCKED:
-            if self.last_charging_session is None or self.last_charging_session.is_closed():
-                LOG.info("Starting new charging session for vehicle %s due to connector locked state", self.vehicle.vin)
-                new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_locked_date=element.last_changed)
-                try:
-                    self.session.add(new_session)
-                    self._update_session_odometer(new_session)
-                    self._update_session_position(new_session)
-                    LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
-                    self.last_charging_session = new_session
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-            elif self.last_charging_session is not None and not self.last_charging_session.was_locked():
-                try:
-                    self.last_charging_session.plug_locked_date = element.last_changed
-                    LOG.info("Writing plug locked date for charging session of vehicle %s", self.vehicle.vin)
-                except DatabaseError as err:
-                    self.session.rollback()
-                    LOG.error('DatabaseError while changing charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-        self.carconnectivity_last_connector_lock_state = element.value
+            if element.value == ChargingConnector.ChargingConnectorLockState.LOCKED \
+                    and self.carconnectivity_last_connector_lock_state != ChargingConnector.ChargingConnectorLockState.LOCKED:
+                if self.last_charging_session is None or self.last_charging_session.is_closed():
+                    LOG.info("Starting new charging session for vehicle %s due to connector locked state", self.vehicle.vin)
+                    new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_locked_date=element.last_changed)
+                    try:
+                        session.add(new_session)
+                        self._update_session_odometer(session, new_session)
+                        self._update_session_position(session, new_session)
+                        session.commit()
+                        LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
+                        self.last_charging_session = new_session
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                elif not self.last_charging_session.was_locked():
+                    LOG.debug("Continuing existing charging session for vehicle %s, writing locked date", self.vehicle.vin)
+                    try:
+                        self.last_charging_session.plug_locked_date = element.last_changed
+                        self._update_session_odometer(session, self.last_charging_session)
+                        self._update_session_position(session, self.last_charging_session)
+                        session.commit()
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+            elif element.value != ChargingConnector.ChargingConnectorLockState.LOCKED \
+                    and self.carconnectivity_last_connector_lock_state == ChargingConnector.ChargingConnectorLockState.LOCKED:
+                if self.last_charging_session is not None and not self.last_charging_session.was_unlocked():
+                    LOG.info("Writing plug unlocked date for charging session of vehicle %s", self.vehicle.vin)
+                    try:
+                        self.last_charging_session.plug_unlocked_date = element.last_changed
+                        session.commit()
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while ending charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+            # Create charging session when locked at startup
+            elif element.value == ChargingConnector.ChargingConnectorLockState.LOCKED \
+                    and self.carconnectivity_last_connector_lock_state == ChargingConnector.ChargingConnectorLockState.LOCKED:
+                if self.last_charging_session is None or self.last_charging_session.is_closed():
+                    LOG.info("Starting new charging session for vehicle %s due to connector locked state", self.vehicle.vin)
+                    new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_locked_date=element.last_changed)
+                    try:
+                        session.add(new_session)
+                        self._update_session_odometer(session, new_session)
+                        self._update_session_position(session, new_session)
+                        session.commit()
+                        LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
+                        self.last_charging_session = new_session
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                elif self.last_charging_session is not None and not self.last_charging_session.was_locked():
+                    try:
+                        self.last_charging_session.plug_locked_date = element.last_changed
+                        session.commit()
+                        LOG.info("Writing plug locked date for charging session of vehicle %s", self.vehicle.vin)
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while changing charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+            self.carconnectivity_last_connector_lock_state = element.value
+        self.session_factory.remove()
 
-    def _update_session_odometer(self, charging_session: ChargingSession) -> None:
+    def _update_session_odometer(self, session: Session, charging_session: ChargingSession) -> None:
         if self.vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
         if self.vehicle.carconnectivity_vehicle.odometer.enabled:
@@ -384,10 +438,10 @@ class ChargingAgent(BaseAgent):
                 try:
                     charging_session.session_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
                 except DatabaseError as err:
-                    self.session.rollback()
+                    session.rollback()
                     LOG.error('DatabaseError while updating odometer for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
 
-    def _update_session_charging_type(self, charging_session: ChargingSession) -> None:
+    def _update_session_charging_type(self, session: Session, charging_session: ChargingSession) -> None:
         if self.vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
         if isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle) and self.vehicle.carconnectivity_vehicle.charging.type.enabled \
@@ -396,10 +450,10 @@ class ChargingAgent(BaseAgent):
                 try:
                     charging_session.charging_type = self.vehicle.carconnectivity_vehicle.charging.type.value
                 except DatabaseError as err:
-                    self.session.rollback()
+                    session.rollback()
                     LOG.error('DatabaseError while updating charging type for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
 
-    def _update_session_position(self, charging_session: ChargingSession) -> None:
+    def _update_session_position(self, session: Session, charging_session: ChargingSession) -> None:
         if self.vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
         if self.vehicle.carconnectivity_vehicle.position.enabled and self.vehicle.carconnectivity_vehicle.position.latitude.enabled \
@@ -411,15 +465,15 @@ class ChargingAgent(BaseAgent):
                     charging_session.session_position_latitude = self.vehicle.carconnectivity_vehicle.position.latitude.value
                     charging_session.session_position_longitude = self.vehicle.carconnectivity_vehicle.position.longitude.value
                 except DatabaseError as err:
-                    self.session.rollback()
+                    session.rollback()
                     LOG.error('DatabaseError while updating position for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
             if charging_session.location is None and self.vehicle.carconnectivity_vehicle.position.location.enabled:
                 location: Location = Location.from_carconnectivity_location(location=self.vehicle.carconnectivity_vehicle.position.location)
                 try:
-                    location = self.session.merge(location)
+                    location = session.merge(location)
                     charging_session.location = location
                 except DatabaseError as err:
-                    self.session.rollback()
+                    session.rollback()
                     LOG.error('DatabaseError while merging location for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
         if charging_session.charging_station is None \
                 and isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle) and self.vehicle.carconnectivity_vehicle.charging is not None \
@@ -427,8 +481,8 @@ class ChargingAgent(BaseAgent):
             charging_station: ChargingStation = ChargingStation.from_carconnectivity_charging_station(
                 charging_station=self.vehicle.carconnectivity_vehicle.charging.charging_station)
             try:
-                charging_station = self.session.merge(charging_station)
+                charging_station = session.merge(charging_station)
                 charging_session.charging_station = charging_station
             except DatabaseError as err:
-                self.session.rollback()
+                session.rollback()
                 LOG.error('DatabaseError while merging charging station for charging session of vehicle %s in database: %s', self.vehicle.vin, err)

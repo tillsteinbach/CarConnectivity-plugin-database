@@ -20,6 +20,7 @@ from carconnectivity_plugins.database.model.base import Base
 from carconnectivity_plugins.database.model.drive import Drive
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import scoped_session
     from sqlalchemy.orm.session import Session
 
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.model.vehicle")
@@ -71,7 +72,7 @@ class Vehicle(Base):
     def __init__(self, vin) -> None:
         self.vin = vin
 
-    def connect(self, session: Session, carconnectivity_vehicle: GenericVehicle) -> None:
+    def connect(self, session_factory: scoped_session[Session], carconnectivity_vehicle: GenericVehicle) -> None:
         """
         Connect a CarConnectivity vehicle instance to this database vehicle model and set up observers.
         This method establishes a connection between a CarConnectivity vehicle object and this database vehicle model.
@@ -113,38 +114,42 @@ class Vehicle(Base):
         if self.carconnectivity_vehicle.license_plate.enabled and self.license_plate != self.carconnectivity_vehicle.license_plate.value:
             self.license_plate = self.carconnectivity_vehicle.license_plate.value
 
-        for drive_id, drive in self.carconnectivity_vehicle.drives.drives.items():
-            drive_db: Optional[Drive] = session.query(Drive).filter(Drive.vin == self.vin, Drive.drive_id == drive_id).first()
-            if drive_db is None:
-                drive_db = Drive(vin=self.vin, drive_id=drive_id)
-                try:
-                    session.add(drive_db)
-                    LOG.debug('Added new drive %s for vehicle %s to database', drive_id, self.vin)
-                    drive_db.connect(session, drive)
-                except IntegrityError as err:
-                    session.rollback()
-                    LOG.error('IntegrityError while adding drive %s for vehicle %s to database, likely due to concurrent addition: %s', drive_id, self.vin, err)
-                except DatabaseError as err:
-                    session.rollback()
-                    LOG.error('DatabaseError while adding drive %s for vehicle %s to database: %s', drive_id, self.vin, err)
-            else:
-                drive_db.connect(session, drive)
-                LOG.debug('Connecting drive %s for vehicle %s', drive_id, self.vin)
+        with session_factory() as session:
+            for drive_id, drive in self.carconnectivity_vehicle.drives.drives.items():
+                drive_db: Optional[Drive] = session.query(Drive).filter(Drive.vin == self.vin, Drive.drive_id == drive_id).first()
+                if drive_db is None:
+                    drive_db = Drive(vin=self.vin, drive_id=drive_id)
+                    try:
+                        session.add(drive_db)
+                        session.commit()
+                        LOG.debug('Added new drive %s for vehicle %s to database', drive_id, self.vin)
+                        drive_db.connect(session_factory, drive)
+                    except IntegrityError as err:
+                        session.rollback()
+                        LOG.error('IntegrityError while adding drive %s for vehicle %s to database, likely due to concurrent addition: %s', drive_id, self.vin,
+                                  err)
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while adding drive %s for vehicle %s to database: %s', drive_id, self.vin, err)
+                else:
+                    drive_db.connect(session_factory, drive)
+                    LOG.debug('Connecting drive %s for vehicle %s', drive_id, self.vin)
 
-        state_agent: StateAgent = StateAgent(session, self)
-        self.agents.append(state_agent)
-        LOG.debug("Adding StateAgent to vehicle %s", self.vin)
-        climazination_agent: ClimatizationAgent = ClimatizationAgent(session, self)
-        self.agents.append(climazination_agent)
-        LOG.debug("Adding ClimatizationAgent to vehicle %s", self.vin)
-        trip_agent: TripAgent = TripAgent(session, self)
-        self.agents.append(trip_agent)
-        LOG.debug("Adding TripAgent to vehicle %s", self.vin)
+            state_agent: StateAgent = StateAgent(session_factory, self)
+            self.agents.append(state_agent)
+            LOG.debug("Adding StateAgent to vehicle %s", self.vin)
+            climazination_agent: ClimatizationAgent = ClimatizationAgent(session_factory, self)
+            self.agents.append(climazination_agent)
+            LOG.debug("Adding ClimatizationAgent to vehicle %s", self.vin)
+            trip_agent: TripAgent = TripAgent(session_factory, self)
+            self.agents.append(trip_agent)
+            LOG.debug("Adding TripAgent to vehicle %s", self.vin)
 
-        if isinstance(self.carconnectivity_vehicle, ElectricVehicle):
-            charging_agent: ChargingAgent = ChargingAgent(session, self)
-            self.agents.append(charging_agent)
-            LOG.debug("Adding ChargingAgent to vehicle %s", self.vin)
+            if isinstance(self.carconnectivity_vehicle, ElectricVehicle):
+                charging_agent: ChargingAgent = ChargingAgent(session_factory, self)
+                self.agents.append(charging_agent)
+                LOG.debug("Adding ChargingAgent to vehicle %s", self.vin)
+        session_factory.remove()
 
     def __on_name_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
         del flags

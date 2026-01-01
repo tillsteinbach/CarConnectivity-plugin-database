@@ -54,12 +54,12 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
         connect_args = {}
         if 'postgresql' in self.active_config['db_url']:
             connect_args['options'] = '-c timezone=utc'
-        self.engine: Engine = create_engine(self.active_config['db_url'], pool_pre_ping=True, connect_args=connect_args, isolation_level="AUTOCOMMIT")
+        self.engine: Engine = create_engine(self.active_config['db_url'], pool_pre_ping=True, connect_args=connect_args)
         session_factory: sessionmaker[Session] = sessionmaker(bind=self.engine, autoflush=True)
-        scoped_session_factory: scoped_session[Session] = scoped_session(session_factory)
-        self.session: Session = scoped_session_factory()
+        self.scoped_session_factory: scoped_session[Session] = scoped_session(session_factory)
 
         self.vehicles: Dict[str, Vehicle] = {}
+        self.vehicles_lock: threading.Lock = threading.Lock()
 
     def startup(self) -> None:
         LOG.info("Starting database plugin")
@@ -73,51 +73,55 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
     def _background_loop(self) -> None:
         self._stop_event.clear()
         first_run: bool = True
-        while not self._stop_event.is_set():
-            try:
-                self.session.execute(text('SELECT 1')).all()
-                self.healthy._set_value(value=True)  # pylint: disable=protected-access
-                if first_run:
-                    LOG.info('Database connection established successfully')
-                    first_run = False
-                    if not inspect(self.engine).has_table("alembic_version"):
-                        LOG.info('It looks like you have an empty database will create all tables')
-                        Base.metadata.create_all(self.engine)
-                        run_database_migrations(dsn=self.active_config['db_url'], stamp_only=True)
-                    else:
-                        LOG.info('It looks like you have an existing database will check if an upgrade is necessary')
-                        Base.metadata.create_all(self.engine)  # TODO: remove after some time
-                        run_database_migrations(dsn=self.active_config['db_url'])
-                        LOG.info('Database upgrade done')
-                    self.session.commit()
-                    self.car_connectivity.garage.add_observer(self.__on_add_vehicle, flag=Observable.ObserverEvent.ENABLED, on_transaction_end=True)
-                    self.vehicles = {vehicle.vin: vehicle for vehicle in self.session.query(Vehicle).all()}
-                    for vehicle in self.vehicles.values():
-                        car_connectivity_vehicle: Optional[GenericVehicle] = self.car_connectivity.garage.get_vehicle(vehicle.vin)
-                        if car_connectivity_vehicle is not None:
-                            vehicle.connect(self.session, car_connectivity_vehicle)
-                    for garage_vehicle in self.car_connectivity.garage.list_vehicles():
-                        if garage_vehicle.vin.value is not None and garage_vehicle.vin.value not in self.vehicles:
-                            LOG.debug('New vehicle found in garage during startup: %s', garage_vehicle.vin.value)
-                            new_vehicle: Vehicle = self.session.get(Vehicle, garage_vehicle.vin.value)
-                            if new_vehicle is None:
-                                new_vehicle: Vehicle = Vehicle(vin=garage_vehicle.vin.value)
-                                try:
-                                    self.session.add(new_vehicle)
-                                    LOG.debug('Added new vehicle %s to database', garage_vehicle.vin.value)
-                                    new_vehicle.connect(self.session, garage_vehicle)
-                                    self.vehicles[garage_vehicle.vin.value] = new_vehicle
-                                except DatabaseError as err:
-                                    self.session.rollback()
-                                    LOG.error('DatabaseError while adding vehicle %s to database: %s', garage_vehicle.vin.value, err)
-                            else:
-                                new_vehicle.connect(self.session, garage_vehicle)
-                                self.vehicles[garage_vehicle.vin.value] = new_vehicle
+        with self.scoped_session_factory() as session:
+            while not self._stop_event.is_set():
+                try:
+                    session.execute(text('SELECT 1')).all()
+                    self.healthy._set_value(value=True)  # pylint: disable=protected-access
+                    if first_run:
+                        LOG.info('Database connection established successfully')
+                        first_run = False
+                        if not inspect(self.engine).has_table("alembic_version"):
+                            LOG.info('It looks like you have an empty database will create all tables')
+                            Base.metadata.create_all(self.engine)
+                            run_database_migrations(dsn=self.active_config['db_url'], stamp_only=True)
+                        else:
+                            LOG.info('It looks like you have an existing database will check if an upgrade is necessary')
+                            Base.metadata.create_all(self.engine)  # TODO: remove after some time
+                            run_database_migrations(dsn=self.active_config['db_url'])
+                            LOG.info('Database upgrade done')
+                        session.commit()
+                        self.car_connectivity.garage.add_observer(self.__on_add_vehicle, flag=Observable.ObserverEvent.ENABLED, on_transaction_end=True)
+                        with self.vehicles_lock:
+                            self.vehicles = {vehicle.vin: vehicle for vehicle in session.query(Vehicle).all()}
+                            for vehicle in self.vehicles.values():
+                                car_connectivity_vehicle: Optional[GenericVehicle] = self.car_connectivity.garage.get_vehicle(vehicle.vin)
+                                if car_connectivity_vehicle is not None:
+                                    vehicle.connect(self.scoped_session_factory, car_connectivity_vehicle)
+                            for garage_vehicle in self.car_connectivity.garage.list_vehicles():
+                                if garage_vehicle.vin.value is not None and garage_vehicle.vin.value not in self.vehicles:
+                                    LOG.debug('New vehicle found in garage during startup: %s', garage_vehicle.vin.value)
+                                    new_vehicle: Vehicle = session.get(Vehicle, garage_vehicle.vin.value)
+                                    if new_vehicle is None:
+                                        new_vehicle: Vehicle = Vehicle(vin=garage_vehicle.vin.value)
+                                        try:
+                                            session.add(new_vehicle)
+                                            session.commit()
+                                            LOG.debug('Added new vehicle %s to database', garage_vehicle.vin.value)
+                                            new_vehicle.connect(self.scoped_session_factory, garage_vehicle)
+                                            self.vehicles[garage_vehicle.vin.value] = new_vehicle
+                                        except DatabaseError as err:
+                                            session.rollback()
+                                            LOG.error('DatabaseError while adding vehicle %s to database: %s', garage_vehicle.vin.value, err)
+                                    else:
+                                        new_vehicle.connect(self.scoped_session_factory, garage_vehicle)
+                                        self.vehicles[garage_vehicle.vin.value] = new_vehicle
 
-            except OperationalError as err:
-                LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
-                self.healthy._set_value(value=False)  # pylint: disable=protected-access
-            self._stop_event.wait(10)
+                except OperationalError as err:
+                    LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
+                    self.healthy._set_value(value=False)  # pylint: disable=protected-access
+                self._stop_event.wait(10)
+        self.scoped_session_factory.remove()
 
     def shutdown(self) -> None:
         self._stop_event.set()
@@ -136,22 +140,26 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
 
     def __on_add_vehicle(self, element, flags) -> None:
         del flags
-        if isinstance(element, GenericVehicle):
+        if isinstance(element, GenericVehicle) and element.vin not in self.vehicles:
             LOG.debug('New vehicle added to garage: %s', element.vin)
             if element.vin.value is not None:
-                if element.vin.value in self.vehicles:
-                    vehicle: Vehicle = self.vehicles[element.vin.value]
-                    vehicle.connect(self.session, element)
-                else:
-                    vehicle: Vehicle = self.session.get(Vehicle, element.vin.value)
-                    if vehicle is None:
-                        vehicle = Vehicle(vin=element.vin.value)
-                        try:
-                            self.session.add(vehicle)
-                            vehicle.connect(self.session, element)
-                        except DatabaseError as err:
-                            self.session.rollback()
-                            LOG.error('DatabaseError while adding vehicle %s to database: %s', element.vin.value, err)
-                    else:
-                        vehicle.connect(self.session, element)
-                    self.vehicles[element.vin.value] = vehicle
+                with self.vehicles_lock:
+                    with self.scoped_session_factory() as session:
+                        if element.vin.value in self.vehicles:
+                            vehicle: Vehicle = self.vehicles[element.vin.value]
+                            vehicle.connect(self.scoped_session_factory, element)
+                        else:
+                            vehicle: Vehicle = session.get(Vehicle, element.vin.value)
+                            if vehicle is None:
+                                vehicle = Vehicle(vin=element.vin.value)
+                                try:
+                                    session.add(vehicle)
+                                    session.commit()
+                                    vehicle.connect(self.scoped_session_factory, element)
+                                except DatabaseError as err:
+                                    session.rollback()
+                                    LOG.error('DatabaseError while adding vehicle %s to database: %s', element.vin.value, err)
+                            else:
+                                vehicle.connect(self.scoped_session_factory, element)
+                            self.vehicles[element.vin.value] = vehicle
+                    self.scoped_session_factory.remove()
