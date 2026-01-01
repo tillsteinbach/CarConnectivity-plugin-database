@@ -36,7 +36,7 @@ class DriveRangeEstimatedFull(Base):  # pylint: disable=too-few-public-methods
     """
 
     __tablename__: str = 'drive_ranges_estimated_full'
-    __table_args__: tuple[Constraint] = (UniqueConstraint("drive_id", "first_date", name="drive_id_first_date"),)
+    __table_args__: tuple[Constraint] = (UniqueConstraint("drive_id", "first_date", name="drive_ranges_estimated_full_drive_id_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     drive_id: Mapped[int] = mapped_column(ForeignKey("drives.id"))

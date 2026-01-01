@@ -35,7 +35,7 @@ class OutsideTemperature(Base):  # pylint: disable=too-few-public-methods
         outside_temperature (float, optional): The measured outside temperature value.
     """
     __tablename__: str = 'outside_temperatures'
-    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="vin_first_date"),)
+    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="outside_temperatures_vin_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vin: Mapped[str] = mapped_column(ForeignKey("vehicles.vin"))

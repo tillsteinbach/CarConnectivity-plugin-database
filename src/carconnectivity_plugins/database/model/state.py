@@ -39,7 +39,7 @@ class State(Base):  # pylint: disable=too-few-public-methods
         connection_state (GenericVehicle.ConnectionState, optional): The vehicle's connection state.
     """
     __tablename__: str = 'states'
-    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="vin_first_date"),)
+    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="states_vin_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vin: Mapped[str] = mapped_column(ForeignKey("vehicles.vin"))

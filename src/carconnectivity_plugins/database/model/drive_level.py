@@ -33,7 +33,7 @@ class DriveLevel(Base):  # pylint: disable=too-few-public-methods
         level (Optional[float]): The battery level value, can be None if unavailable.
     """
     __tablename__: str = 'drive_levels'
-    __table_args__: tuple[Constraint] = (UniqueConstraint("drive_id", "first_date", name="vdrive_id_first_date"),)
+    __table_args__: tuple[Constraint] = (UniqueConstraint("drive_id", "first_date", name="drive_levels_drive_id_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     drive_id: Mapped[int] = mapped_column(ForeignKey("drives.id"))

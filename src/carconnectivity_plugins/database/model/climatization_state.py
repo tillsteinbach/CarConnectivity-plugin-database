@@ -41,7 +41,7 @@ class ClimatizationState(Base):  # pylint: disable=too-few-public-methods
         state (Optional[Climatization.ClimatizationState]): The climatization state value.
     """
     __tablename__: str = 'climatization_states'
-    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="vin_first_date"),)
+    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="climatization_states_vin_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vin: Mapped[str] = mapped_column(ForeignKey("vehicles.vin"))

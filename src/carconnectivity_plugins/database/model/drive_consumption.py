@@ -31,7 +31,7 @@ class DriveConsumption(Base):  # pylint: disable=too-few-public-methods
         - Unique constraint on (drive_id, first_date) to prevent duplicate entries.
     """
     __tablename__: str = 'drive_consumptions'
-    __table_args__: tuple[Constraint] = (UniqueConstraint("drive_id", "first_date", name="drive_id_first_date"),)
+    __table_args__: tuple[Constraint] = (UniqueConstraint("drive_id", "first_date", name="drive_consumptions_drive_id_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     drive_id: Mapped[int] = mapped_column(ForeignKey("drives.id"))

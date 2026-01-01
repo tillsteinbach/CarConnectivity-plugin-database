@@ -36,7 +36,7 @@ class ChargingRate(Base):  # pylint: disable=too-few-public-methods
     """
 
     __tablename__: str = 'charging_rates'
-    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="vin_first_date"),)
+    __table_args__: tuple[Constraint] = (UniqueConstraint("vin", "first_date", name="charging_rates_vin_first_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vin: Mapped[str] = mapped_column(ForeignKey("vehicles.vin"))
