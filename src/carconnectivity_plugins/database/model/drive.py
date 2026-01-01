@@ -8,8 +8,6 @@ from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from carconnectivity.drive import GenericDrive
-from carconnectivity.observable import Observable
-from carconnectivity.attributes import EnumAttribute
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.agents.drive_state_agent import DriveStateAgent
@@ -54,6 +52,9 @@ class Drive(Base):
     vehicle: Mapped["Vehicle"] = relationship("Vehicle")
     drive_id: Mapped[Optional[str]]
     type: Mapped[Optional[GenericDrive.Type]]
+    capacity: Mapped[Optional[float]]
+    capacity_total: Mapped[Optional[float]]
+    wltp_range: Mapped[Optional[float]]
 
     carconnectivity_drive: Optional[GenericDrive] = None
     agents: list[BaseAgent] = []
@@ -80,16 +81,6 @@ class Drive(Base):
         if self.carconnectivity_drive is not None:
             raise ValueError("Can only connect once! Drive already connected with database model")
         self.carconnectivity_drive = carconnectivity_drive
-        self.carconnectivity_drive.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
-        if self.carconnectivity_drive.type.enabled and self.carconnectivity_drive.type.value is not None \
-                and self.type != self.carconnectivity_drive.type.value:
-            self.type = self.carconnectivity_drive.type.value
-
         drive_state_agent: DriveStateAgent = DriveStateAgent(session_factory, self)  # type: ignore[assignment]
         self.agents.append(drive_state_agent)
         LOG.debug("Adding DriveStateAgent to drive %s of vehicle %s", self.drive_id, self.vin)
-
-    def __on_type_change(self, element: EnumAttribute[GenericDrive.Type], flags: Observable.ObserverEvent) -> None:
-        del flags
-        if element.value is not None and self.type != element.value:
-            self.type = element.value

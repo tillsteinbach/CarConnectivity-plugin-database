@@ -8,10 +8,12 @@ import logging
 from sqlalchemy.exc import DatabaseError
 
 from carconnectivity.observable import Observable
+from carconnectivity.drive import GenericDrive, ElectricDrive, CombustionDrive
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.model.drive_level import DriveLevel
 from carconnectivity_plugins.database.model.drive_range import DriveRange
+from carconnectivity_plugins.database.model.drive_consumption import DriveConsumption
 from carconnectivity_plugins.database.model.drive_range_full import DriveRangeEstimatedFull
 
 if TYPE_CHECKING:
@@ -19,7 +21,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import scoped_session
     from sqlalchemy.orm.session import Session
 
-    from carconnectivity.attributes import LevelAttribute, RangeAttribute
+    from carconnectivity.attributes import LevelAttribute, RangeAttribute, EnumAttribute, EnergyAttribute, VolumeAttribute, EnergyConsumptionAttribute, \
+        FuelConsumptionAttribute
 
     from carconnectivity_plugins.database.model.drive import Drive
 
@@ -34,7 +37,46 @@ class DriveStateAgent(BaseAgent):
         self.session_factory: scoped_session[Session] = session_factory
         self.drive: Drive = drive
 
+        drive.carconnectivity_drive.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+        self.type_lock: threading.RLock = threading.RLock()
+        self.__on_type_change(drive.carconnectivity_drive.type, Observable.ObserverEvent.VALUE_CHANGED)
+
+        drive.carconnectivity_drive.range_wltp.add_observer(self.__on_range_wltp_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+        self.range_wltp_lock: threading.RLock = threading.RLock()
+        self.__on_range_wltp_change(drive.carconnectivity_drive.range_wltp, Observable.ObserverEvent.VALUE_CHANGED)
+
         with self.session_factory() as session:
+            if isinstance(drive.carconnectivity_drive, ElectricDrive):
+                drive.carconnectivity_drive.battery.total_capacity.add_observer(self.__on_electric_total_capacity_change,
+                                                                                Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+                self.total_capacity_lock: threading.RLock = threading.RLock()
+                self.__on_electric_total_capacity_change(drive.carconnectivity_drive.battery.total_capacity, Observable.ObserverEvent.VALUE_CHANGED)
+
+                drive.carconnectivity_drive.battery.available_capacity.add_observer(self.__on_electric_available_capacity_change,
+                                                                                    Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+                self.available_capacity_lock: threading.RLock = threading.RLock()
+                self.__on_electric_available_capacity_change(drive.carconnectivity_drive.battery.available_capacity, Observable.ObserverEvent.VALUE_CHANGED)
+
+                self.last_electric_consumption: Optional[DriveConsumption] = session.query(DriveConsumption).filter(DriveConsumption.drive_id == drive.id) \
+                    .order_by(DriveConsumption.first_date.desc()).first()
+                self.last_electric_consumption_lock: threading.RLock = threading.RLock()
+                drive.carconnectivity_drive.consumption.add_observer(self.__on_electric_consumption_change,
+                                                                     Observable.ObserverEvent.VALUE_CHANGED)
+                self.__on_electric_consumption_change(drive.carconnectivity_drive.consumption, Observable.ObserverEvent.UPDATED)
+
+            elif isinstance(drive.carconnectivity_drive, CombustionDrive):
+                drive.carconnectivity_drive.fuel_tank.available_capacity.add_observer(self.__on_fuel_available_capacity_change,
+                                                                                      Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+                self.fuel_available_capacity_lock: threading.RLock = threading.RLock()
+                self.__on_fuel_available_capacity_change(drive.carconnectivity_drive.fuel_tank.available_capacity, Observable.ObserverEvent.VALUE_CHANGED)
+
+                self.last_fuel_consumption: Optional[DriveConsumption] = session.query(DriveConsumption).filter(DriveConsumption.drive_id == drive.id) \
+                    .order_by(DriveConsumption.first_date.desc()).first()
+                self.last_fuel_consumption_lock: threading.RLock = threading.RLock()
+                drive.carconnectivity_drive.consumption.add_observer(self.__on_fuel_consumption_change,
+                                                                     Observable.ObserverEvent.VALUE_CHANGED)
+                self.__on_fuel_consumption_change(drive.carconnectivity_drive.consumption, Observable.ObserverEvent.UPDATED)
+
             self.last_level: Optional[DriveLevel] = session.query(DriveLevel).filter(DriveLevel.drive_id == drive.id) \
                 .order_by(DriveLevel.first_date.desc()).first()
             self.last_level_lock: threading.RLock = threading.RLock()
@@ -63,6 +105,8 @@ class DriveStateAgent(BaseAgent):
         if element.enabled:
             with self.last_level_lock:
                 with self.session_factory() as session:
+                    self.drive = session.merge(self.drive)
+                    session.refresh(self.drive)
                     if self.last_level is not None:
                         self.last_level = session.merge(self.last_level)
                         session.refresh(self.last_level)
@@ -95,6 +139,8 @@ class DriveStateAgent(BaseAgent):
         if element.enabled:
             with self.last_range_lock:
                 with self.session_factory() as session:
+                    self.drive = session.merge(self.drive)
+                    session.refresh(self.drive)
                     if self.last_range is not None:
                         self.last_range = session.merge(self.last_range)
                         session.refresh(self.last_range)
@@ -127,6 +173,8 @@ class DriveStateAgent(BaseAgent):
         if element.enabled:
             with self.last_range_estimated_full_lock:
                 with self.session_factory() as session:
+                    self.drive = session.merge(self.drive)
+                    session.refresh(self.drive)
                     if self.last_range_estimated_full is not None:
                         self.last_range_estimated_full = session.merge(self.last_range_estimated_full)
                         session.refresh(self.last_range_estimated_full)
@@ -152,4 +200,127 @@ class DriveStateAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating range_estimated_full for drive %s in database: %s', self.drive.id, err)
+                self.session_factory.remove()
+
+    def __on_type_change(self, element: EnumAttribute[GenericDrive.Type], flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.type_lock:
+            with self.session_factory() as session:
+                self.drive = session.merge(self.drive)
+                session.refresh(self.drive)
+                if element.enabled and element.value is not None and self.drive.type != element.value:
+                    self.drive.type = element.value
+                    session.commit()
+            self.session_factory.remove()
+
+    def __on_electric_total_capacity_change(self, element: EnergyAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.total_capacity_lock:
+            with self.session_factory() as session:
+                self.drive = session.merge(self.drive)
+                session.refresh(self.drive)
+                if element.enabled and element.value is not None and self.drive.capacity_total != element.value:
+                    self.drive.capacity_total = element.value
+                    session.commit()
+            self.session_factory.remove()
+
+    def __on_electric_available_capacity_change(self, element: EnergyAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.available_capacity_lock:
+            with self.session_factory() as session:
+                self.drive = session.merge(self.drive)
+                session.refresh(self.drive)
+                if element.enabled and element.value is not None and self.drive.capacity != element.value:
+                    self.drive.capacity = element.value
+                    session.commit()
+            self.session_factory.remove()
+
+    def __on_range_wltp_change(self, element: RangeAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.range_wltp_lock:
+            with self.session_factory() as session:
+                self.drive = session.merge(self.drive)
+                session.refresh(self.drive)
+                if element.enabled and element.value is not None and self.drive.wltp_range != element.value:
+                    self.drive.wltp_range = element.value
+                    session.commit()
+            self.session_factory.remove()
+
+    def __on_fuel_available_capacity_change(self, element: VolumeAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.fuel_available_capacity_lock:
+            with self.session_factory() as session:
+                self.drive = session.merge(self.drive)
+                session.refresh(self.drive)
+                if element.enabled and element.value is not None and self.drive.capacity != element.value:
+                    self.drive.capacity = element.value
+                    session.commit()
+            self.session_factory.remove()
+
+    def __on_electric_consumption_change(self, element: EnergyConsumptionAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        if element.enabled:
+            with self.last_electric_consumption_lock:
+                with self.session_factory() as session:
+                    self.drive = session.merge(self.drive)
+                    session.refresh(self.drive)
+                    if self.last_electric_consumption is not None:
+                        self.last_electric_consumption = session.merge(self.last_electric_consumption)
+                        session.refresh(self.last_electric_consumption)
+                    if (self.last_electric_consumption is None or self.last_electric_consumption.consumption != element.value) \
+                            and element.last_updated is not None:
+                        new_level: DriveConsumption = DriveConsumption(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
+                                                                       consumption=element.value)
+                        try:
+                            session.add(new_level)
+                            session.commit()
+                            LOG.debug('Added new consumption %s for drive %s to database', element.value, self.drive.id)
+                            self.last_electric_consumption = new_level
+                        except DatabaseError as err:
+                            session.rollback()
+                            LOG.error('DatabaseError while adding consumption for drive %s to database: %s', self.drive.id, err)
+                    elif self.last_electric_consumption is not None and self.last_electric_consumption.consumption == element.value \
+                            and element.last_updated is not None:
+                        if self.last_electric_consumption.last_date is None or element.last_updated > self.last_electric_consumption.last_date:
+                            try:
+                                self.last_electric_consumption.last_date = element.last_updated
+                                session.commit()
+                                LOG.debug('Updated consumption %s for drive %s in database', element.value, self.drive.id)
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while updating consumption for drive %s in database: %s', self.drive.id, err)
+                self.session_factory.remove()
+
+    def __on_fuel_consumption_change(self, element: FuelConsumptionAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        if element.enabled:
+            with self.last_fuel_consumption_lock:
+                with self.session_factory() as session:
+                    self.drive = session.merge(self.drive)
+                    session.refresh(self.drive)
+                    if self.last_fuel_consumption is not None:
+                        self.last_fuel_consumption = session.merge(self.last_fuel_consumption)
+                        session.refresh(self.last_fuel_consumption)
+                    if (self.last_fuel_consumption is None or self.last_fuel_consumption.consumption != element.value) \
+                            and element.last_updated is not None:
+                        new_level: DriveConsumption = DriveConsumption(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
+                                                                       consumption=element.value)
+                        try:
+                            session.add(new_level)
+                            session.commit()
+                            LOG.debug('Added new consumption %s for drive %s to database', element.value, self.drive.id)
+                            self.last_fuel_consumption = new_level
+                        except DatabaseError as err:
+                            session.rollback()
+                            LOG.error('DatabaseError while adding consumption for drive %s to database: %s', self.drive.id, err)
+                    elif self.last_fuel_consumption is not None and self.last_fuel_consumption.consumption == element.value \
+                            and element.last_updated is not None:
+                        if self.last_fuel_consumption.last_date is None or element.last_updated > self.last_fuel_consumption.last_date:
+                            try:
+                                self.last_fuel_consumption.last_date = element.last_updated
+                                session.commit()
+                                LOG.debug('Updated consumption %s for drive %s in database', element.value, self.drive.id)
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while updating consumption for drive %s in database: %s', self.drive.id, err)
                 self.session_factory.remove()
