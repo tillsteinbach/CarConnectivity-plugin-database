@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+import threading
+
 import logging
 from datetime import datetime, timezone, timedelta
 
@@ -59,6 +61,7 @@ class TripAgent(BaseAgent):
 
         with self.session_factory() as session:
             self.trip: Optional[Trip] = session.query(Trip).filter(Trip.vehicle == vehicle).order_by(Trip.start_date.desc()).first()
+            self.trip_lock: threading.Lock = threading.Lock()
             if self.trip is not None:
                 if self.trip.destination_date is None:
                     LOG.info("Last trip for vehicle %s is still open during startup, closing it now", vehicle.vin)
@@ -81,52 +84,54 @@ class TripAgent(BaseAgent):
             if element.enabled and element.value is not None:
                 if self.last_carconnectivity_state is not None:
                     with self.session_factory() as session:
-                        if self.trip is not None:
-                            self.trip = session.merge(self.trip)
-                            session.refresh(self.trip)
-                        if self.last_carconnectivity_state not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
-                                and element.value in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
+                        with self.trip_lock:
                             if self.trip is not None:
-                                LOG.warning("Starting new trip for vehicle %s while previous trip is still open, closing previous trip first", self.vehicle.vin)
-                                self.trip = None
-                            LOG.info("Starting new trip for vehicle %s", self.vehicle.vin)
-                            start_date: datetime = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
-                            new_trip: Trip = Trip(vin=self.vehicle.vin, start_date=start_date)
-                            if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
-                                    self.vehicle.carconnectivity_vehicle.odometer.value is not None:
-                                new_trip.start_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
-                            if not self._update_trip_position(session=session, trip=new_trip, start=True):
-                                # if now no position is available try the last known position that is not older than 5min
-                                if self.last_parked_position_latitude is not None and self.last_parked_position_longitude is not None \
-                                        and self.last_parked_position_time is not None \
-                                        and self.last_parked_position_time < (start_date - timedelta(minutes=5)):
-                                    self._update_trip_position(session=session, trip=new_trip, start=True,
-                                                               latitude=self.last_parked_position_latitude,
-                                                               longitude=self.last_parked_position_longitude)
-                            try:
-                                session.add(new_trip)
-                                session.commit()
-                                LOG.debug('Added new trip for vehicle %s to database', self.vehicle.vin)
-                                self.trip = new_trip
-                            except DatabaseError as err:
-                                session.rollback()
-                                LOG.error('DatabaseError while adding trip for vehicle %s to database: %s', self.vehicle.vin, err)
-                        elif self.last_carconnectivity_state in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
-                                and element.value not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
-                            if self.trip is not None and not self.trip.is_completed():
-                                LOG.info("Ending trip for vehicle %s", self.vehicle.vin)
+                                self.trip = session.merge(self.trip)
+                                session.refresh(self.trip)
+                            if self.last_carconnectivity_state not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
+                                    and element.value in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
+                                if self.trip is not None:
+                                    LOG.warning("Starting new trip for vehicle %s while previous trip is still open, closing previous trip first",
+                                                self.vehicle.vin)
+                                    self.trip = None
+                                LOG.info("Starting new trip for vehicle %s", self.vehicle.vin)
+                                start_date: datetime = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
+                                new_trip: Trip = Trip(vin=self.vehicle.vin, start_date=start_date)
+                                if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
+                                        self.vehicle.carconnectivity_vehicle.odometer.value is not None:
+                                    new_trip.start_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
+                                if not self._update_trip_position(session=session, trip=new_trip, start=True):
+                                    # if now no position is available try the last known position that is not older than 5min
+                                    if self.last_parked_position_latitude is not None and self.last_parked_position_longitude is not None \
+                                            and self.last_parked_position_time is not None \
+                                            and self.last_parked_position_time < (start_date - timedelta(minutes=5)):
+                                        self._update_trip_position(session=session, trip=new_trip, start=True,
+                                                                   latitude=self.last_parked_position_latitude,
+                                                                   longitude=self.last_parked_position_longitude)
                                 try:
-                                    self.trip.destination_date = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
-                                    if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
-                                            self.vehicle.carconnectivity_vehicle.odometer.value is not None:
-                                        self.trip.destination_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
-                                        LOG.debug('Set destination odometer %.2f for trip of vehicle %s', self.trip.destination_odometer, self.vehicle.vin)
-                                    if self._update_trip_position(session=session, trip=self.trip, start=False):
-                                        self.trip = None
+                                    session.add(new_trip)
                                     session.commit()
+                                    LOG.debug('Added new trip for vehicle %s to database', self.vehicle.vin)
+                                    self.trip = new_trip
                                 except DatabaseError as err:
                                     session.rollback()
-                                    LOG.error('DatabaseError while ending trip for vehicle %s in database: %s', self.vehicle.vin, err)
+                                    LOG.error('DatabaseError while adding trip for vehicle %s to database: %s', self.vehicle.vin, err)
+                            elif self.last_carconnectivity_state in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
+                                    and element.value not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
+                                if self.trip is not None and not self.trip.is_completed():
+                                    LOG.info("Ending trip for vehicle %s", self.vehicle.vin)
+                                    try:
+                                        self.trip.destination_date = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
+                                        if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
+                                                self.vehicle.carconnectivity_vehicle.odometer.value is not None:
+                                            self.trip.destination_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
+                                            LOG.debug('Set destination odometer %.2f for trip of vehicle %s', self.trip.destination_odometer, self.vehicle.vin)
+                                        if self._update_trip_position(session=session, trip=self.trip, start=False):
+                                            self.trip = None
+                                        session.commit()
+                                    except DatabaseError as err:
+                                        session.rollback()
+                                        LOG.error('DatabaseError while ending trip for vehicle %s in database: %s', self.vehicle.vin, err)
                     self.session_factory.remove()
                 self.last_carconnectivity_state = element.value
 
@@ -150,11 +155,12 @@ class TripAgent(BaseAgent):
                 and self.last_parked_position_time is not None \
                 and self.last_parked_position_time < (self.trip.destination_date + timedelta(minutes=5)):
             with self.session_factory() as session:
-                self.trip = session.merge(self.trip)
-                session.refresh(self.trip)
-                self._update_trip_position(session, self.trip, start=False,
-                                           latitude=self.last_parked_position_latitude,
-                                           longitude=self.last_parked_position_longitude)
+                with self.trip_lock:
+                    self.trip = session.merge(self.trip)
+                    session.refresh(self.trip)
+                    self._update_trip_position(session, self.trip, start=False,
+                                               latitude=self.last_parked_position_latitude,
+                                               longitude=self.last_parked_position_longitude)
             self.session_factory.remove()
 
     def _update_trip_position(self, session: Session, trip: Trip, start: bool,
