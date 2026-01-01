@@ -1,5 +1,4 @@
 from __future__ import annotations
-from _thread import LockType
 from typing import TYPE_CHECKING
 
 import threading
@@ -38,13 +37,13 @@ class DriveStateAgent(BaseAgent):
         with self.session_factory() as session:
             self.last_level: Optional[DriveLevel] = session.query(DriveLevel).filter(DriveLevel.drive_id == drive.id) \
                 .order_by(DriveLevel.first_date.desc()).first()
-            self.last_level_lock: LockType = threading.Lock()
+            self.last_level_lock: threading.RLock = threading.RLock()
             self.last_range: Optional[DriveRange] = session.query(DriveRange).filter(DriveRange.drive_id == drive.id) \
                 .order_by(DriveRange.first_date.desc()).first()
-            self.last_range_lock: LockType = threading.Lock()
+            self.last_range_lock: threading.RLock = threading.RLock()
             self.last_range_estimated_full: Optional[DriveRangeEstimatedFull] = session.query(DriveRangeEstimatedFull) \
                 .filter(DriveRangeEstimatedFull.drive_id == drive.id).order_by(DriveRangeEstimatedFull.first_date.desc()).first()
-            self.last_range_estimated_full_lock: LockType = threading.Lock()
+            self.last_range_estimated_full_lock: threading.RLock = threading.RLock()
 
             drive.carconnectivity_drive.level.add_observer(self.__on_level_change, Observable.ObserverEvent.UPDATED)
             if drive.carconnectivity_drive.level.enabled:

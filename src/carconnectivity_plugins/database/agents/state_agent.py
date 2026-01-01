@@ -38,15 +38,15 @@ class StateAgent(BaseAgent):
 
         with self.session_factory() as session:
             self.last_state: Optional[State] = session.query(State).filter(State.vehicle == vehicle).order_by(State.first_date.desc()).first()
-            self.last_state_lock: threading.Lock = threading.Lock()
+            self.last_state_lock: threading.RLock = threading.RLock()
 
             self.last_connection_state: Optional[ConnectionState] = session.query(ConnectionState).filter(ConnectionState.vehicle == vehicle) \
                 .order_by(ConnectionState.first_date.desc()).first()
-            self.last_connection_state_lock: threading.Lock = threading.Lock()
+            self.last_connection_state_lock: threading.RLock = threading.RLock()
 
             self.last_outside_temperature: Optional[OutsideTemperature] = session.query(OutsideTemperature).filter(OutsideTemperature.vehicle == vehicle) \
                 .order_by(OutsideTemperature.first_date.desc()).first()
-            self.last_outside_temperature_lock: threading.Lock = threading.Lock()
+            self.last_outside_temperature_lock: threading.RLock = threading.RLock()
 
             vehicle.carconnectivity_vehicle.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
             self.__on_state_change(vehicle.carconnectivity_vehicle.state, Observable.ObserverEvent.UPDATED)

@@ -47,8 +47,11 @@ class ChargingAgent(BaseAgent):
 
         with self.session_factory() as session:
             self.last_charging_session: Optional[ChargingSession] = session.query(ChargingSession).filter(ChargingSession.vehicle == vehicle) \
-                .order_by(ChargingSession.session_start_date.desc()).first()
-            self.last_charging_session_lock: threading.Lock = threading.Lock()
+                .order_by(ChargingSession.session_start_date.desc().nulls_first(),
+                          ChargingSession.plug_locked_date.desc().nulls_first(),
+                          ChargingSession.plug_connected_date.desc().nulls_first()).first()
+
+            self.last_charging_session_lock: threading.RLock = threading.RLock()
             self.carconnectivity_last_charging_state: Optional[Charging.ChargingState] = vehicle.carconnectivity_vehicle.charging.state.value
             self.carconnectivity_last_connector_state: Optional[ChargingConnector.ChargingConnectorConnectionState] = vehicle.carconnectivity_vehicle.charging\
                 .connector.connection_state.value
@@ -70,15 +73,15 @@ class ChargingAgent(BaseAgent):
 
             self.last_charging_state: Optional[ChargingState] = session.query(ChargingState).filter(ChargingState.vehicle == vehicle)\
                 .order_by(ChargingState.first_date.desc()).first()
-            self.last_charging_state_lock: threading.Lock = threading.Lock()
+            self.last_charging_state_lock: threading.RLock = threading.RLock()
 
             self.last_charging_rate: Optional[ChargingRate] = session.query(ChargingRate).filter(ChargingRate.vehicle == vehicle)\
                 .order_by(ChargingRate.first_date.desc()).first()
-            self.last_charging_rate_lock: threading.Lock = threading.Lock()
+            self.last_charging_rate_lock: threading.RLock = threading.RLock()
 
             self.last_charging_power: Optional[ChargingPower] = session.query(ChargingPower).filter(ChargingPower.vehicle == vehicle)\
                 .order_by(ChargingPower.first_date.desc()).first()
-            self.last_charging_power_lock: threading.Lock = threading.Lock()
+            self.last_charging_power_lock: threading.RLock = threading.RLock()
 
             vehicle.carconnectivity_vehicle.charging.connector.connection_state.add_observer(self.__on_connector_state_change, Observable.ObserverEvent.UPDATED)
             if vehicle.carconnectivity_vehicle.charging.connector.connection_state.enabled:
@@ -153,7 +156,7 @@ class ChargingAgent(BaseAgent):
                                 if self.last_charging_session is not None \
                                         and self.last_charging_session.was_connected() and not self.last_charging_session.was_disconnected() \
                                         and (self.last_charging_session.session_end_date is None or element.last_changed is None
-                                            or self.last_charging_session.session_end_date > (element.last_changed - allowed_interrupt)):
+                                             or self.last_charging_session.session_end_date > (element.last_changed - allowed_interrupt)):
                                     LOG.debug("Continuing existing charging session for vehicle %s", self.vehicle.vin)
                                     try:
                                         self.last_charging_session.session_end_date = None

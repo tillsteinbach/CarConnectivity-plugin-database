@@ -61,7 +61,7 @@ class TripAgent(BaseAgent):
 
         with self.session_factory() as session:
             self.trip: Optional[Trip] = session.query(Trip).filter(Trip.vehicle == vehicle).order_by(Trip.start_date.desc()).first()
-            self.trip_lock: threading.Lock = threading.Lock()
+            self.trip_lock: threading.RLock = threading.RLock()
             if self.trip is not None:
                 if self.trip.destination_date is None:
                     LOG.info("Last trip for vehicle %s is still open during startup, closing it now", vehicle.vin)

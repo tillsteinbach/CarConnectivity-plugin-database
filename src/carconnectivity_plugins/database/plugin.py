@@ -59,7 +59,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
         self.scoped_session_factory: scoped_session[Session] = scoped_session(session_factory)
 
         self.vehicles: Dict[str, Vehicle] = {}
-        self.vehicles_lock: threading.Lock = threading.Lock()
+        self.vehicles_lock: threading.RLock = threading.RLock()
 
     def startup(self) -> None:
         LOG.info("Starting database plugin")
@@ -140,10 +140,10 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
 
     def __on_add_vehicle(self, element, flags) -> None:
         del flags
-        if isinstance(element, GenericVehicle) and element.vin not in self.vehicles:
-            LOG.debug('New vehicle added to garage: %s', element.vin)
-            if element.vin.value is not None:
-                with self.vehicles_lock:
+        with self.vehicles_lock:
+            if isinstance(element, GenericVehicle) and element.vin not in self.vehicles:
+                LOG.debug('New vehicle added to garage: %s', element.vin)
+                if element.vin.value is not None:
                     with self.scoped_session_factory() as session:
                         if element.vin.value in self.vehicles:
                             vehicle: Vehicle = self.vehicles[element.vin.value]

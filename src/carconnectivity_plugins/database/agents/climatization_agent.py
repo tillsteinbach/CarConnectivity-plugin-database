@@ -37,7 +37,7 @@ class ClimatizationAgent(BaseAgent):
         with self.session_factory() as session:
             self.last_state: Optional[ClimatizationState] = session.query(ClimatizationState).filter(ClimatizationState.vehicle == vehicle)\
                 .order_by(ClimatizationState.first_date.desc()).first()
-            self.last_state_lock: threading.Lock = threading.Lock()
+            self.last_state_lock: threading.RLock = threading.RLock()
 
             vehicle.carconnectivity_vehicle.climatization.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
             self.__on_state_change(vehicle.carconnectivity_vehicle.climatization.state, Observable.ObserverEvent.UPDATED)
