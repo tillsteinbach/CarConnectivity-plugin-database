@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import scoped_session
     from sqlalchemy.orm.session import Session
 
+    from carconnectivity_plugins.database.plugin import Plugin
+
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.model.vehicle")
 
 
@@ -72,7 +74,7 @@ class Vehicle(Base):
     def __init__(self, vin) -> None:
         self.vin = vin
 
-    def connect(self, session_factory: scoped_session[Session], carconnectivity_vehicle: GenericVehicle) -> None:
+    def connect(self, database_plugin: Plugin, session_factory: scoped_session[Session], carconnectivity_vehicle: GenericVehicle) -> None:
         """
         Connect a CarConnectivity vehicle instance to this database vehicle model and set up observers.
         This method establishes a connection between a CarConnectivity vehicle object and this database vehicle model.
@@ -123,30 +125,32 @@ class Vehicle(Base):
                         session.add(drive_db)
                         session.commit()
                         LOG.debug('Added new drive %s for vehicle %s to database', drive_id, self.vin)
-                        drive_db.connect(session_factory, drive)
+                        drive_db.connect(database_plugin, session_factory, drive)
                     except IntegrityError as err:
                         session.rollback()
                         LOG.error('IntegrityError while adding drive %s for vehicle %s to database, likely due to concurrent addition: %s', drive_id, self.vin,
                                   err)
+                        database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     except DatabaseError as err:
                         session.rollback()
                         LOG.error('DatabaseError while adding drive %s for vehicle %s to database: %s', drive_id, self.vin, err)
+                        database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 else:
-                    drive_db.connect(session_factory, drive)
+                    drive_db.connect(database_plugin, session_factory, drive)
                     LOG.debug('Connecting drive %s for vehicle %s', drive_id, self.vin)
 
-            state_agent: StateAgent = StateAgent(session_factory, self)
+            state_agent: StateAgent = StateAgent(database_plugin, session_factory, self)
             self.agents.append(state_agent)
             LOG.debug("Adding StateAgent to vehicle %s", self.vin)
-            climazination_agent: ClimatizationAgent = ClimatizationAgent(session_factory, self)
+            climazination_agent: ClimatizationAgent = ClimatizationAgent(database_plugin, session_factory, self)
             self.agents.append(climazination_agent)
             LOG.debug("Adding ClimatizationAgent to vehicle %s", self.vin)
-            trip_agent: TripAgent = TripAgent(session_factory, self)
+            trip_agent: TripAgent = TripAgent(database_plugin, session_factory, self)
             self.agents.append(trip_agent)
             LOG.debug("Adding TripAgent to vehicle %s", self.vin)
 
             if isinstance(self.carconnectivity_vehicle, ElectricVehicle):
-                charging_agent: ChargingAgent = ChargingAgent(session_factory, self)
+                charging_agent: ChargingAgent = ChargingAgent(database_plugin, session_factory, self)
                 self.agents.append(charging_agent)
                 LOG.debug("Adding ChargingAgent to vehicle %s", self.vin)
         session_factory.remove()

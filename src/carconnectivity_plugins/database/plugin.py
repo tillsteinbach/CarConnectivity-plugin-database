@@ -97,7 +97,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                             for vehicle in self.vehicles.values():
                                 car_connectivity_vehicle: Optional[GenericVehicle] = self.car_connectivity.garage.get_vehicle(vehicle.vin)
                                 if car_connectivity_vehicle is not None:
-                                    vehicle.connect(self.scoped_session_factory, car_connectivity_vehicle)
+                                    vehicle.connect(self, self.scoped_session_factory, car_connectivity_vehicle)
                             for garage_vehicle in self.car_connectivity.garage.list_vehicles():
                                 if garage_vehicle.vin.value is not None and garage_vehicle.vin.value not in self.vehicles:
                                     LOG.debug('New vehicle found in garage during startup: %s', garage_vehicle.vin.value)
@@ -108,13 +108,14 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                                             session.add(new_vehicle)
                                             session.commit()
                                             LOG.debug('Added new vehicle %s to database', garage_vehicle.vin.value)
-                                            new_vehicle.connect(self.scoped_session_factory, garage_vehicle)
+                                            new_vehicle.connect(self, self.scoped_session_factory, garage_vehicle)
                                             self.vehicles[garage_vehicle.vin.value] = new_vehicle
                                         except DatabaseError as err:
                                             session.rollback()
                                             LOG.error('DatabaseError while adding vehicle %s to database: %s', garage_vehicle.vin.value, err)
+                                            self.healthy._set_value(value=False)  # pylint: disable=protected-access
                                     else:
-                                        new_vehicle.connect(self.scoped_session_factory, garage_vehicle)
+                                        new_vehicle.connect(self, self.scoped_session_factory, garage_vehicle)
                                         self.vehicles[garage_vehicle.vin.value] = new_vehicle
 
                 except OperationalError as err:
@@ -147,7 +148,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                     with self.scoped_session_factory() as session:
                         if element.vin.value in self.vehicles:
                             vehicle: Vehicle = self.vehicles[element.vin.value]
-                            vehicle.connect(self.scoped_session_factory, element)
+                            vehicle.connect(self, self.scoped_session_factory, element)
                         else:
                             vehicle: Vehicle = session.get(Vehicle, element.vin.value)
                             if vehicle is None:
@@ -155,11 +156,12 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                                 try:
                                     session.add(vehicle)
                                     session.commit()
-                                    vehicle.connect(self.scoped_session_factory, element)
+                                    vehicle.connect(self, self.scoped_session_factory, element)
                                 except DatabaseError as err:
                                     session.rollback()
                                     LOG.error('DatabaseError while adding vehicle %s to database: %s', element.vin.value, err)
+                                    self.healthy._set_value(value=False)  # pylint: disable=protected-access
                             else:
-                                vehicle.connect(self.scoped_session_factory, element)
+                                vehicle.connect(self, self.scoped_session_factory, element)
                             self.vehicles[element.vin.value] = vehicle
                     self.scoped_session_factory.remove()

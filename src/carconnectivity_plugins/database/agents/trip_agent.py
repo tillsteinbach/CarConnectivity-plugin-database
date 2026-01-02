@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from carconnectivity.attributes import EnumAttribute, FloatAttribute
 
+    from carconnectivity_plugins.database.plugin import Plugin
     from carconnectivity_plugins.database.model.vehicle import Vehicle
 
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.trip_agent")
@@ -49,9 +50,10 @@ class TripAgent(BaseAgent):
         - Trip records include start/end dates and odometer readings when available.
     """
 
-    def __init__(self, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
+    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
         if vehicle is None or vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle or its carconnectivity_vehicle attribute is None")
+        self.database_plugin: Plugin = database_plugin
         self.session_factory: scoped_session[Session] = session_factory
         self.vehicle: Vehicle = vehicle
         self.last_carconnectivity_state: Optional[GenericVehicle.State] = None
@@ -116,6 +118,7 @@ class TripAgent(BaseAgent):
                                 except DatabaseError as err:
                                     session.rollback()
                                     LOG.error('DatabaseError while adding trip for vehicle %s to database: %s', self.vehicle.vin, err)
+                                    self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                             elif self.last_carconnectivity_state in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
                                     and element.value not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
                                 if self.trip is not None and not self.trip.is_completed():
@@ -132,6 +135,7 @@ class TripAgent(BaseAgent):
                                     except DatabaseError as err:
                                         session.rollback()
                                         LOG.error('DatabaseError while ending trip for vehicle %s in database: %s', self.vehicle.vin, err)
+                                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     self.session_factory.remove()
                 self.last_carconnectivity_state = element.value
 
@@ -151,16 +155,17 @@ class TripAgent(BaseAgent):
 
     def _on_position_change(self) -> None:
         # Check if there is a finished trip that lacks destination position. We allow 5min after destination_date to set the position.
-        if self.trip is not None and self.trip.destination_date is not None and self.trip.destination_position_latitude is None \
-                and self.last_parked_position_time is not None \
-                and self.last_parked_position_time < (self.trip.destination_date + timedelta(minutes=5)):
+        if self.trip is not None:
             with self.session_factory() as session:
                 with self.trip_lock:
                     self.trip = session.merge(self.trip)
                     session.refresh(self.trip)
-                    self._update_trip_position(session, self.trip, start=False,
-                                               latitude=self.last_parked_position_latitude,
-                                               longitude=self.last_parked_position_longitude)
+                    if self.trip.destination_date is not None and self.trip.destination_position_latitude is None \
+                            and self.last_parked_position_time is not None \
+                            and self.last_parked_position_time < (self.trip.destination_date + timedelta(minutes=5)):
+                        self._update_trip_position(session, self.trip, start=False,
+                                                   latitude=self.last_parked_position_latitude,
+                                                   longitude=self.last_parked_position_longitude)
             self.session_factory.remove()
 
     def _update_trip_position(self, session: Session, trip: Trip, start: bool,
@@ -184,6 +189,7 @@ class TripAgent(BaseAgent):
                     except DatabaseError as err:
                         session.rollback()
                         LOG.error('DatabaseError while updating position for trip of vehicle %s in database: %s', self.vehicle.vin, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 if trip.start_location is None and self.vehicle.carconnectivity_vehicle.position.location.enabled:
                     location: Location = Location.from_carconnectivity_location(location=self.vehicle.carconnectivity_vehicle.position.location)
                     try:
@@ -193,6 +199,7 @@ class TripAgent(BaseAgent):
                     except DatabaseError as err:
                         session.rollback()
                         LOG.error('DatabaseError while merging location for trip of vehicle %s in database: %s', self.vehicle.vin, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 return True
             else:
                 if trip.destination_position_latitude is None and trip.destination_position_longitude is None:
@@ -203,6 +210,7 @@ class TripAgent(BaseAgent):
                     except DatabaseError as err:
                         session.rollback()
                         LOG.error('DatabaseError while updating position for trip of vehicle %s in database: %s', self.vehicle.vin, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 if trip.destination_location is None and self.vehicle.carconnectivity_vehicle.position.location.enabled:
                     location: Location = Location.from_carconnectivity_location(location=self.vehicle.carconnectivity_vehicle.position.location)
                     try:
@@ -212,5 +220,6 @@ class TripAgent(BaseAgent):
                     except DatabaseError as err:
                         session.rollback()
                         LOG.error('DatabaseError while merging location for trip of vehicle %s in database: %s', self.vehicle.vin, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 return True
         return False

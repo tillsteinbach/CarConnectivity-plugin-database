@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm.session import Session
     from sqlalchemy import Constraint
 
+    from carconnectivity_plugins.database.plugin import Plugin
+
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.model.drive")
 
 
@@ -63,7 +65,7 @@ class Drive(Base):
         self.vin = vin
         self.drive_id = drive_id
 
-    def connect(self, session_factory: scoped_session[Session], carconnectivity_drive: GenericDrive) -> None:
+    def connect(self, database_plugin: Plugin, session_factory: scoped_session[Session], carconnectivity_drive: GenericDrive) -> None:
         """
         Connect a CarConnectivity drive object to this database model instance.
         This method establishes a connection between the database drive model and a CarConnectivity drive object,
@@ -81,6 +83,6 @@ class Drive(Base):
         if self.carconnectivity_drive is not None:
             raise ValueError("Can only connect once! Drive already connected with database model")
         self.carconnectivity_drive = carconnectivity_drive
-        drive_state_agent: DriveStateAgent = DriveStateAgent(session_factory, self)  # type: ignore[assignment]
+        drive_state_agent: DriveStateAgent = DriveStateAgent(database_plugin, session_factory, self)  # type: ignore[assignment]
         self.agents.append(drive_state_agent)
         LOG.debug("Adding DriveStateAgent to drive %s of vehicle %s", self.drive_id, self.vin)

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from carconnectivity.climatization import Climatization
 
+    from carconnectivity_plugins.database.plugin import Plugin
     from carconnectivity_plugins.database.model.vehicle import Vehicle
 
 
@@ -28,9 +29,10 @@ LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents
 
 
 class ClimatizationAgent(BaseAgent):
-    def __init__(self, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
+    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
         if vehicle is None or vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle or its carconnectivity_vehicle attribute is None")
+        self.database_plugin: Plugin = database_plugin
         self.session_factory: scoped_session[Session] = session_factory
         self.vehicle: Vehicle = vehicle
 
@@ -63,6 +65,7 @@ class ClimatizationAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding climatizationstate for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
 
                     elif self.last_state is not None and self.last_state.state == element.value and element.last_updated is not None:
                         if self.last_state.last_date is None or element.last_updated > self.last_state.last_date:
@@ -73,4 +76,5 @@ class ClimatizationAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating climatizationstate for vehicle %s in database: %s', self.vehicle.vin, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()

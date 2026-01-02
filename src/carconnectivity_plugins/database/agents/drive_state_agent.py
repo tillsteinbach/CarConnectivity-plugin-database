@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from carconnectivity.attributes import LevelAttribute, RangeAttribute, EnumAttribute, EnergyAttribute, VolumeAttribute, EnergyConsumptionAttribute, \
         FuelConsumptionAttribute
 
+    from carconnectivity_plugins.database.plugin import Plugin
     from carconnectivity_plugins.database.model.drive import Drive
 
 
@@ -31,9 +32,10 @@ LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents
 
 
 class DriveStateAgent(BaseAgent):
-    def __init__(self, session_factory: scoped_session[Session], drive: Drive) -> None:
+    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], drive: Drive) -> None:
         if drive is None or drive.carconnectivity_drive is None:
             raise ValueError("Drive or its carconnectivity_drive attribute is None")
+        self.database_plugin: Plugin = database_plugin
         self.session_factory: scoped_session[Session] = session_factory
         self.drive: Drive = drive
 
@@ -60,8 +62,8 @@ class DriveStateAgent(BaseAgent):
                 self.available_capacity_lock: threading.RLock = threading.RLock()
                 self.__on_electric_available_capacity_change(drive.carconnectivity_drive.battery.available_capacity, Observable.ObserverEvent.VALUE_CHANGED)
 
-                self.last_electric_consumption: Optional[DriveConsumption] = session.query(DriveConsumption).filter(DriveConsumption.drive_id == self.drive.id) \
-                    .order_by(DriveConsumption.first_date.desc()).first()
+                self.last_electric_consumption: Optional[DriveConsumption] = session.query(DriveConsumption) \
+                    .filter(DriveConsumption.drive_id == self.drive.id).order_by(DriveConsumption.first_date.desc()).first()
                 self.last_electric_consumption_lock: threading.RLock = threading.RLock()
                 drive.carconnectivity_drive.consumption.add_observer(self.__on_electric_consumption_change,
                                                                      Observable.ObserverEvent.VALUE_CHANGED)
@@ -125,6 +127,7 @@ class DriveStateAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding level for drive %s to database: %s', self.drive.id, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_level is not None and self.last_level.level == element.value \
                             and element.last_updated is not None:
                         if self.last_level.last_date is None or element.last_updated > self.last_level.last_date:
@@ -135,6 +138,7 @@ class DriveStateAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating level for drive %s in database: %s', self.drive.id, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()
 
     def __on_range_change(self, element: RangeAttribute, flags: Observable.ObserverEvent) -> None:
@@ -159,6 +163,7 @@ class DriveStateAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding range for drive %s to database: %s', self.drive.id, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_range is not None and self.last_range.range == element.value \
                             and element.last_updated is not None:
                         if self.last_range.last_date is None or element.last_updated > self.last_range.last_date:
@@ -169,6 +174,7 @@ class DriveStateAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating range for drive %s in database: %s', self.drive.id, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()
 
     def __on_range_estimated_full_change(self, element: RangeAttribute, flags: Observable.ObserverEvent) -> None:
@@ -193,6 +199,7 @@ class DriveStateAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding range_estimated_full for drive %s to database: %s', self.drive.id, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_range_estimated_full is not None and self.last_range_estimated_full.range_estimated_full == element.value \
                             and element.last_updated is not None:
                         if self.last_range_estimated_full.last_date is None or element.last_updated > self.last_range_estimated_full.last_date:
@@ -203,6 +210,7 @@ class DriveStateAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating range_estimated_full for drive %s in database: %s', self.drive.id, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()
 
     def __on_type_change(self, element: EnumAttribute[GenericDrive.Type], flags: Observable.ObserverEvent) -> None:
@@ -212,8 +220,13 @@ class DriveStateAgent(BaseAgent):
                 self.drive = session.merge(self.drive)
                 session.refresh(self.drive)
                 if element.enabled and element.value is not None and self.drive.type != element.value:
-                    self.drive.type = element.value
-                    session.commit()
+                    try:
+                        self.drive.type = element.value
+                        session.commit()
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while updating type for drive %s to database: %s', self.drive.id, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
             self.session_factory.remove()
 
     def __on_electric_total_capacity_change(self, element: EnergyAttribute, flags: Observable.ObserverEvent) -> None:
@@ -223,8 +236,13 @@ class DriveStateAgent(BaseAgent):
                 self.drive = session.merge(self.drive)
                 session.refresh(self.drive)
                 if element.enabled and element.value is not None and self.drive.capacity_total != element.value:
-                    self.drive.capacity_total = element.value
-                    session.commit()
+                    try:
+                        self.drive.capacity_total = element.value
+                        session.commit()
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while updating total capacity for drive %s to database: %s', self.drive.id, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
             self.session_factory.remove()
 
     def __on_electric_available_capacity_change(self, element: EnergyAttribute, flags: Observable.ObserverEvent) -> None:
@@ -234,8 +252,13 @@ class DriveStateAgent(BaseAgent):
                 self.drive = session.merge(self.drive)
                 session.refresh(self.drive)
                 if element.enabled and element.value is not None and self.drive.capacity != element.value:
-                    self.drive.capacity = element.value
-                    session.commit()
+                    try:
+                        self.drive.capacity = element.value
+                        session.commit()
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while updating available capacity for drive %s to database: %s', self.drive.id, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
             self.session_factory.remove()
 
     def __on_range_wltp_change(self, element: RangeAttribute, flags: Observable.ObserverEvent) -> None:
@@ -245,8 +268,13 @@ class DriveStateAgent(BaseAgent):
                 self.drive = session.merge(self.drive)
                 session.refresh(self.drive)
                 if element.enabled and element.value is not None and self.drive.wltp_range != element.value:
-                    self.drive.wltp_range = element.value
-                    session.commit()
+                    try:
+                        self.drive.wltp_range = element.value
+                        session.commit()
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while updating WLTP range for drive %s to database: %s', self.drive.id, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
             self.session_factory.remove()
 
     def __on_fuel_available_capacity_change(self, element: VolumeAttribute, flags: Observable.ObserverEvent) -> None:
@@ -256,8 +284,13 @@ class DriveStateAgent(BaseAgent):
                 self.drive = session.merge(self.drive)
                 session.refresh(self.drive)
                 if element.enabled and element.value is not None and self.drive.capacity != element.value:
-                    self.drive.capacity = element.value
-                    session.commit()
+                    try:
+                        self.drive.capacity = element.value
+                        session.commit()
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while updating available capacity for drive %s to database: %s', self.drive.id, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
             self.session_factory.remove()
 
     def __on_electric_consumption_change(self, element: EnergyConsumptionAttribute, flags: Observable.ObserverEvent) -> None:
@@ -282,6 +315,7 @@ class DriveStateAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding consumption for drive %s to database: %s', self.drive.id, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_electric_consumption is not None and self.last_electric_consumption.consumption == element.value \
                             and element.last_updated is not None:
                         if self.last_electric_consumption.last_date is None or element.last_updated > self.last_electric_consumption.last_date:
@@ -292,6 +326,7 @@ class DriveStateAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating consumption for drive %s in database: %s', self.drive.id, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()
 
     def __on_fuel_consumption_change(self, element: FuelConsumptionAttribute, flags: Observable.ObserverEvent) -> None:
@@ -316,6 +351,7 @@ class DriveStateAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding consumption for drive %s to database: %s', self.drive.id, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_fuel_consumption is not None and self.last_fuel_consumption.consumption == element.value \
                             and element.last_updated is not None:
                         if self.last_fuel_consumption.last_date is None or element.last_updated > self.last_fuel_consumption.last_date:
@@ -326,4 +362,5 @@ class DriveStateAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating consumption for drive %s in database: %s', self.drive.id, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()

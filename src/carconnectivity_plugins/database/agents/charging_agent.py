@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
     from carconnectivity.attributes import EnumAttribute, SpeedAttribute, PowerAttribute
 
+    from carconnectivity_plugins.database.plugin import Plugin
     from carconnectivity_plugins.database.model.vehicle import Vehicle
     from carconnectivity.drive import ElectricDrive
 
@@ -37,11 +38,12 @@ LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents
 
 class ChargingAgent(BaseAgent):
 
-    def __init__(self, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
+    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
         if vehicle is None or vehicle.carconnectivity_vehicle is None:
             raise ValueError("Vehicle or its carconnectivity_vehicle attribute is None")
         if not isinstance(vehicle.carconnectivity_vehicle, ElectricVehicle):
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is not an ElectricVehicle")
+        self.database_plugin: Plugin = database_plugin
         self.session_factory: scoped_session[Session] = session_factory
         self.vehicle: Vehicle = vehicle
 
@@ -127,6 +129,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging state for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
 
                     elif self.last_charging_state is not None and self.last_charging_state.state == element.value and element.last_updated is not None:
                         if self.last_charging_state.last_date is None or element.last_updated > self.last_charging_state.last_date:
@@ -137,6 +140,7 @@ class ChargingAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating charging state for vehicle %s in database: %s', self.vehicle.vin, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
 
                     with self.last_charging_session_lock:
                         if self.last_charging_session is not None:
@@ -165,6 +169,7 @@ class ChargingAgent(BaseAgent):
                                     except DatabaseError as err:
                                         session.rollback()
                                         LOG.error('DatabaseError while updating charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                                 else:
                                     LOG.info("Starting new charging session for vehicle %s", self.vehicle.vin)
                                     new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, session_start_date=element.last_changed)
@@ -179,6 +184,7 @@ class ChargingAgent(BaseAgent):
                                     except DatabaseError as err:
                                         session.rollback()
                                         LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                             else:
                                 if self.last_charging_session.was_started():
                                     LOG.debug("Continuing existing charging session for vehicle %s", self.vehicle.vin)
@@ -193,6 +199,7 @@ class ChargingAgent(BaseAgent):
                                     except DatabaseError as err:
                                         session.rollback()
                                         LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                             # Update startlevel at beginning of charging
                             if self.last_charging_session is not None and isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle):
                                 electric_drive: Optional[ElectricDrive] = self.vehicle.carconnectivity_vehicle.get_electric_drive()
@@ -203,6 +210,7 @@ class ChargingAgent(BaseAgent):
                                     except DatabaseError as err:
                                         session.rollback()
                                         LOG.error('DatabaseError while setting start level for vehicle %s in database: %s', self.vehicle.vin, err)
+                                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                         elif element.value not in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
                                 and self.carconnectivity_last_charging_state in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION):
                             if self.last_charging_session is not None and not self.last_charging_session.was_ended():
@@ -213,6 +221,7 @@ class ChargingAgent(BaseAgent):
                                 except DatabaseError as err:
                                     session.rollback()
                                     LOG.error('DatabaseError while ending charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                                    self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                                 if isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle):
                                     electric_drive: Optional[ElectricDrive] = self.vehicle.carconnectivity_vehicle.get_electric_drive()
                                     if electric_drive is not None and electric_drive.level.enabled and electric_drive.level.value is not None:
@@ -222,6 +231,7 @@ class ChargingAgent(BaseAgent):
                                         except DatabaseError as err:
                                             session.rollback()
                                             LOG.error('DatabaseError while setting start level for vehicle %s in database: %s', self.vehicle.vin, err)
+                                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     self.carconnectivity_last_charging_state = element.value
             self.session_factory.remove()
 
@@ -247,6 +257,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging rate for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_charging_rate is not None and self.last_charging_rate.rate == element.value and element.last_updated is not None:
                         if self.last_charging_rate.last_date is None or element.last_updated > self.last_charging_rate.last_date:
                             try:
@@ -256,6 +267,7 @@ class ChargingAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating charging rate for vehicle %s in database: %s', self.vehicle.vin, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()
 
     def __on_charging_power_change(self, element: PowerAttribute, flags: Observable.ObserverEvent) -> None:
@@ -280,6 +292,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging power for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_charging_power is not None and self.last_charging_power.power == element.value and element.last_updated is not None:
                         if self.last_charging_power.last_date is None or element.last_updated > self.last_charging_power.last_date:
                             try:
@@ -288,6 +301,7 @@ class ChargingAgent(BaseAgent):
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating charging power for vehicle %s in database: %s', self.vehicle.vin, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()
 
     def __on_connector_state_change(self, element: EnumAttribute[ChargingConnector.ChargingConnectorConnectionState], flags: Observable.ObserverEvent) -> None:
@@ -316,6 +330,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif not self.last_charging_session.was_connected():
                         LOG.debug("Continuing existing charging session for vehicle %s, writing connected date", self.vehicle.vin)
                         try:
@@ -326,6 +341,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 elif element.value != ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
                         and self.carconnectivity_last_connector_state == ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
                     if self.last_charging_session is not None and not self.last_charging_session.was_disconnected():
@@ -336,6 +352,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while ending charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 # Create charging session when connected at startup
                 elif element.value == ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
                         and self.carconnectivity_last_connector_state == ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
@@ -352,6 +369,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_charging_session is not None and not self.last_charging_session.was_connected():
                         try:
                             self.last_charging_session.plug_connected_date = element.last_changed
@@ -360,6 +378,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while changing charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.carconnectivity_last_connector_state = element.value
         self.session_factory.remove()
 
@@ -389,6 +408,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif not self.last_charging_session.was_locked():
                         LOG.debug("Continuing existing charging session for vehicle %s, writing locked date", self.vehicle.vin)
                         try:
@@ -399,6 +419,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while starting charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 elif element.value != ChargingConnector.ChargingConnectorLockState.LOCKED \
                         and self.carconnectivity_last_connector_lock_state == ChargingConnector.ChargingConnectorLockState.LOCKED:
                     if self.last_charging_session is not None and not self.last_charging_session.was_unlocked():
@@ -409,6 +430,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while ending charging session for vehicle %s in database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 # Create charging session when locked at startup
                 elif element.value == ChargingConnector.ChargingConnectorLockState.LOCKED \
                         and self.carconnectivity_last_connector_lock_state == ChargingConnector.ChargingConnectorLockState.LOCKED:
@@ -425,6 +447,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_charging_session is not None and not self.last_charging_session.was_locked():
                         try:
                             self.last_charging_session.plug_locked_date = element.last_changed
@@ -433,6 +456,7 @@ class ChargingAgent(BaseAgent):
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while changing charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.carconnectivity_last_connector_lock_state = element.value
         self.session_factory.remove()
 
@@ -446,6 +470,7 @@ class ChargingAgent(BaseAgent):
                 except DatabaseError as err:
                     session.rollback()
                     LOG.error('DatabaseError while updating odometer for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
+                    self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
 
     def _update_session_charging_type(self, session: Session, charging_session: ChargingSession) -> None:
         if self.vehicle.carconnectivity_vehicle is None:
@@ -458,6 +483,7 @@ class ChargingAgent(BaseAgent):
                 except DatabaseError as err:
                     session.rollback()
                     LOG.error('DatabaseError while updating charging type for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
+                    self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
 
     def _update_session_position(self, session: Session, charging_session: ChargingSession) -> None:
         if self.vehicle.carconnectivity_vehicle is None:
@@ -473,6 +499,7 @@ class ChargingAgent(BaseAgent):
                 except DatabaseError as err:
                     session.rollback()
                     LOG.error('DatabaseError while updating position for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
+                    self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
             if charging_session.location is None and self.vehicle.carconnectivity_vehicle.position.location.enabled:
                 location: Location = Location.from_carconnectivity_location(location=self.vehicle.carconnectivity_vehicle.position.location)
                 try:
@@ -481,6 +508,7 @@ class ChargingAgent(BaseAgent):
                 except DatabaseError as err:
                     session.rollback()
                     LOG.error('DatabaseError while merging location for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
+                    self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
         if charging_session.charging_station is None \
                 and isinstance(self.vehicle.carconnectivity_vehicle, ElectricVehicle) and self.vehicle.carconnectivity_vehicle.charging is not None \
                 and self.vehicle.carconnectivity_vehicle.charging.enabled and self.vehicle.carconnectivity_vehicle.charging.charging_station.enabled:
@@ -492,3 +520,4 @@ class ChargingAgent(BaseAgent):
             except DatabaseError as err:
                 session.rollback()
                 LOG.error('DatabaseError while merging charging station for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
+                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
