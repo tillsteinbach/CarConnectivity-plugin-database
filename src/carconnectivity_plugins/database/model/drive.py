@@ -83,6 +83,7 @@ class Drive(Base):
         if self.carconnectivity_drive is not None:
             raise ValueError("Can only connect once! Drive already connected with database model")
         self.carconnectivity_drive = carconnectivity_drive
+        LOG.debug("Adding DriveStateAgent to drive %s of vehicle %s", self.drive_id, self.vin)
         drive_state_agent: DriveStateAgent = DriveStateAgent(database_plugin, session_factory, self)  # type: ignore[assignment]
         self.agents.append(drive_state_agent)
-        LOG.debug("Adding DriveStateAgent to drive %s of vehicle %s", self.drive_id, self.vin)
+        

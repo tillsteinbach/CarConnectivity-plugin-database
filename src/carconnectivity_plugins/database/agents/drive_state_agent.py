@@ -33,54 +33,55 @@ LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents
 
 class DriveStateAgent(BaseAgent):
     def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], drive: Drive) -> None:
-        if drive is None or drive.carconnectivity_drive is None:
-            raise ValueError("Drive or its carconnectivity_drive attribute is None")
         self.database_plugin: Plugin = database_plugin
         self.session_factory: scoped_session[Session] = session_factory
         self.drive: Drive = drive
+        if self.drive is None or self.drive.carconnectivity_drive is None:
+            raise ValueError("Drive or its carconnectivity_drive attribute is None")
 
-        drive.carconnectivity_drive.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+        self.drive.carconnectivity_drive.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
         self.type_lock: threading.RLock = threading.RLock()
-        self.__on_type_change(drive.carconnectivity_drive.type, Observable.ObserverEvent.VALUE_CHANGED)
+        self.__on_type_change(self.drive.carconnectivity_drive.type, Observable.ObserverEvent.VALUE_CHANGED)
 
-        drive.carconnectivity_drive.range_wltp.add_observer(self.__on_range_wltp_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+        self.drive.carconnectivity_drive.range_wltp.add_observer(self.__on_range_wltp_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
         self.range_wltp_lock: threading.RLock = threading.RLock()
-        self.__on_range_wltp_change(drive.carconnectivity_drive.range_wltp, Observable.ObserverEvent.VALUE_CHANGED)
+        self.__on_range_wltp_change(self.drive.carconnectivity_drive.range_wltp, Observable.ObserverEvent.VALUE_CHANGED)
 
         with self.session_factory() as session:
             self.drive = session.merge(self.drive)
             session.refresh(self.drive)
 
-            if isinstance(drive.carconnectivity_drive, ElectricDrive):
-                drive.carconnectivity_drive.battery.total_capacity.add_observer(self.__on_electric_total_capacity_change,
-                                                                                Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+            if isinstance(self.drive.carconnectivity_drive, ElectricDrive):
+                self.drive.carconnectivity_drive.battery.total_capacity.add_observer(self.__on_electric_total_capacity_change,
+                                                                                     Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
                 self.total_capacity_lock: threading.RLock = threading.RLock()
-                self.__on_electric_total_capacity_change(drive.carconnectivity_drive.battery.total_capacity, Observable.ObserverEvent.VALUE_CHANGED)
+                self.__on_electric_total_capacity_change(self.drive.carconnectivity_drive.battery.total_capacity, Observable.ObserverEvent.VALUE_CHANGED)
 
-                drive.carconnectivity_drive.battery.available_capacity.add_observer(self.__on_electric_available_capacity_change,
-                                                                                    Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+                self.drive.carconnectivity_drive.battery.available_capacity.add_observer(self.__on_electric_available_capacity_change,
+                                                                                         Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
                 self.available_capacity_lock: threading.RLock = threading.RLock()
-                self.__on_electric_available_capacity_change(drive.carconnectivity_drive.battery.available_capacity, Observable.ObserverEvent.VALUE_CHANGED)
+                self.__on_electric_available_capacity_change(self.drive.carconnectivity_drive.battery.available_capacity,
+                                                             Observable.ObserverEvent.VALUE_CHANGED)
 
                 self.last_electric_consumption: Optional[DriveConsumption] = session.query(DriveConsumption) \
                     .filter(DriveConsumption.drive_id == self.drive.id).order_by(DriveConsumption.first_date.desc()).first()
                 self.last_electric_consumption_lock: threading.RLock = threading.RLock()
-                drive.carconnectivity_drive.consumption.add_observer(self.__on_electric_consumption_change,
-                                                                     Observable.ObserverEvent.VALUE_CHANGED)
-                self.__on_electric_consumption_change(drive.carconnectivity_drive.consumption, Observable.ObserverEvent.UPDATED)
+                self.drive.carconnectivity_drive.consumption.add_observer(self.__on_electric_consumption_change,
+                                                                          Observable.ObserverEvent.VALUE_CHANGED)
+                self.__on_electric_consumption_change(self.drive.carconnectivity_drive.consumption, Observable.ObserverEvent.UPDATED)
 
-            elif isinstance(drive.carconnectivity_drive, CombustionDrive):
-                drive.carconnectivity_drive.fuel_tank.available_capacity.add_observer(self.__on_fuel_available_capacity_change,
-                                                                                      Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+            elif isinstance(self.drive.carconnectivity_drive, CombustionDrive):
+                self.drive.carconnectivity_drive.fuel_tank.available_capacity.add_observer(self.__on_fuel_available_capacity_change,
+                                                                                           Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
                 self.fuel_available_capacity_lock: threading.RLock = threading.RLock()
-                self.__on_fuel_available_capacity_change(drive.carconnectivity_drive.fuel_tank.available_capacity, Observable.ObserverEvent.VALUE_CHANGED)
+                self.__on_fuel_available_capacity_change(self.drive.carconnectivity_drive.fuel_tank.available_capacity, Observable.ObserverEvent.VALUE_CHANGED)
 
                 self.last_fuel_consumption: Optional[DriveConsumption] = session.query(DriveConsumption).filter(DriveConsumption.drive_id == self.drive.id) \
                     .order_by(DriveConsumption.first_date.desc()).first()
                 self.last_fuel_consumption_lock: threading.RLock = threading.RLock()
-                drive.carconnectivity_drive.consumption.add_observer(self.__on_fuel_consumption_change,
-                                                                     Observable.ObserverEvent.VALUE_CHANGED)
-                self.__on_fuel_consumption_change(drive.carconnectivity_drive.consumption, Observable.ObserverEvent.UPDATED)
+                self.drive.carconnectivity_drive.consumption.add_observer(self.__on_fuel_consumption_change,
+                                                                          Observable.ObserverEvent.VALUE_CHANGED)
+                self.__on_fuel_consumption_change(self.drive.carconnectivity_drive.consumption, Observable.ObserverEvent.UPDATED)
 
             self.last_level: Optional[DriveLevel] = session.query(DriveLevel).filter(DriveLevel.drive_id == self.drive.id) \
                 .order_by(DriveLevel.first_date.desc()).first()
@@ -92,17 +93,18 @@ class DriveStateAgent(BaseAgent):
                 .filter(DriveRangeEstimatedFull.drive_id == self.drive.id).order_by(DriveRangeEstimatedFull.first_date.desc()).first()
             self.last_range_estimated_full_lock: threading.RLock = threading.RLock()
 
-            drive.carconnectivity_drive.level.add_observer(self.__on_level_change, Observable.ObserverEvent.UPDATED)
-            if drive.carconnectivity_drive.level.enabled:
-                self.__on_level_change(drive.carconnectivity_drive.level, Observable.ObserverEvent.UPDATED)
+            if self.drive.carconnectivity_drive is not None:
+                self.drive.carconnectivity_drive.level.add_observer(self.__on_level_change, Observable.ObserverEvent.UPDATED)
+                if self.drive.carconnectivity_drive.level.enabled:
+                    self.__on_level_change(self.drive.carconnectivity_drive.level, Observable.ObserverEvent.UPDATED)
 
-            drive.carconnectivity_drive.range.add_observer(self.__on_range_change, Observable.ObserverEvent.UPDATED)
-            if drive.carconnectivity_drive.range.enabled:
-                self.__on_range_change(drive.carconnectivity_drive.range, Observable.ObserverEvent.UPDATED)
+                self.drive.carconnectivity_drive.range.add_observer(self.__on_range_change, Observable.ObserverEvent.UPDATED)
+                if self.drive.carconnectivity_drive.range.enabled:
+                    self.__on_range_change(self.drive.carconnectivity_drive.range, Observable.ObserverEvent.UPDATED)
 
-            drive.carconnectivity_drive.range_estimated_full.add_observer(self.__on_range_estimated_full_change, Observable.ObserverEvent.UPDATED)
-            if drive.carconnectivity_drive.range_estimated_full.enabled:
-                self.__on_range_estimated_full_change(drive.carconnectivity_drive.range_estimated_full, Observable.ObserverEvent.UPDATED)
+                self.drive.carconnectivity_drive.range_estimated_full.add_observer(self.__on_range_estimated_full_change, Observable.ObserverEvent.UPDATED)
+                if self.drive.carconnectivity_drive.range_estimated_full.enabled:
+                    self.__on_range_estimated_full_change(self.drive.carconnectivity_drive.range_estimated_full, Observable.ObserverEvent.UPDATED)
         session_factory.remove()
 
     def __on_level_change(self, element: LevelAttribute, flags: Observable.ObserverEvent) -> None:
