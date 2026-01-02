@@ -46,6 +46,9 @@ class DriveStateAgent(BaseAgent):
         self.__on_range_wltp_change(drive.carconnectivity_drive.range_wltp, Observable.ObserverEvent.VALUE_CHANGED)
 
         with self.session_factory() as session:
+            self.drive = session.merge(self.drive)
+            session.refresh(self.drive)
+
             if isinstance(drive.carconnectivity_drive, ElectricDrive):
                 drive.carconnectivity_drive.battery.total_capacity.add_observer(self.__on_electric_total_capacity_change,
                                                                                 Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
@@ -57,7 +60,7 @@ class DriveStateAgent(BaseAgent):
                 self.available_capacity_lock: threading.RLock = threading.RLock()
                 self.__on_electric_available_capacity_change(drive.carconnectivity_drive.battery.available_capacity, Observable.ObserverEvent.VALUE_CHANGED)
 
-                self.last_electric_consumption: Optional[DriveConsumption] = session.query(DriveConsumption).filter(DriveConsumption.drive_id == drive.id) \
+                self.last_electric_consumption: Optional[DriveConsumption] = session.query(DriveConsumption).filter(DriveConsumption.drive_id == self.drive.id) \
                     .order_by(DriveConsumption.first_date.desc()).first()
                 self.last_electric_consumption_lock: threading.RLock = threading.RLock()
                 drive.carconnectivity_drive.consumption.add_observer(self.__on_electric_consumption_change,
@@ -70,21 +73,21 @@ class DriveStateAgent(BaseAgent):
                 self.fuel_available_capacity_lock: threading.RLock = threading.RLock()
                 self.__on_fuel_available_capacity_change(drive.carconnectivity_drive.fuel_tank.available_capacity, Observable.ObserverEvent.VALUE_CHANGED)
 
-                self.last_fuel_consumption: Optional[DriveConsumption] = session.query(DriveConsumption).filter(DriveConsumption.drive_id == drive.id) \
+                self.last_fuel_consumption: Optional[DriveConsumption] = session.query(DriveConsumption).filter(DriveConsumption.drive_id == self.drive.id) \
                     .order_by(DriveConsumption.first_date.desc()).first()
                 self.last_fuel_consumption_lock: threading.RLock = threading.RLock()
                 drive.carconnectivity_drive.consumption.add_observer(self.__on_fuel_consumption_change,
                                                                      Observable.ObserverEvent.VALUE_CHANGED)
                 self.__on_fuel_consumption_change(drive.carconnectivity_drive.consumption, Observable.ObserverEvent.UPDATED)
 
-            self.last_level: Optional[DriveLevel] = session.query(DriveLevel).filter(DriveLevel.drive_id == drive.id) \
+            self.last_level: Optional[DriveLevel] = session.query(DriveLevel).filter(DriveLevel.drive_id == self.drive.id) \
                 .order_by(DriveLevel.first_date.desc()).first()
             self.last_level_lock: threading.RLock = threading.RLock()
-            self.last_range: Optional[DriveRange] = session.query(DriveRange).filter(DriveRange.drive_id == drive.id) \
+            self.last_range: Optional[DriveRange] = session.query(DriveRange).filter(DriveRange.drive_id == self.drive.id) \
                 .order_by(DriveRange.first_date.desc()).first()
             self.last_range_lock: threading.RLock = threading.RLock()
             self.last_range_estimated_full: Optional[DriveRangeEstimatedFull] = session.query(DriveRangeEstimatedFull) \
-                .filter(DriveRangeEstimatedFull.drive_id == drive.id).order_by(DriveRangeEstimatedFull.first_date.desc()).first()
+                .filter(DriveRangeEstimatedFull.drive_id == self.drive.id).order_by(DriveRangeEstimatedFull.first_date.desc()).first()
             self.last_range_estimated_full_lock: threading.RLock = threading.RLock()
 
             drive.carconnectivity_drive.level.add_observer(self.__on_level_change, Observable.ObserverEvent.UPDATED)
