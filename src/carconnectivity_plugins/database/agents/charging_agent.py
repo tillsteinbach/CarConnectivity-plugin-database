@@ -410,6 +410,7 @@ class ChargingAgent(BaseAgent):
                     session.refresh(self.last_charging_session)
 
                 if element.value == ChargingConnector.ChargingConnectorLockState.LOCKED \
+                        and self.carconnectivity_last_connector_lock_state is not None \
                         and self.carconnectivity_last_connector_lock_state != ChargingConnector.ChargingConnectorLockState.LOCKED:
                     if self.last_charging_session is None or self.last_charging_session.is_closed():
                         # In case this was an interrupted charging session (interrupt no longer than 24hours), continue by erasing end time
@@ -465,7 +466,21 @@ class ChargingAgent(BaseAgent):
                 elif element.value == ChargingConnector.ChargingConnectorLockState.LOCKED \
                         and self.carconnectivity_last_connector_lock_state == ChargingConnector.ChargingConnectorLockState.LOCKED:
                     if self.last_charging_session is None or self.last_charging_session.is_closed():
-                        LOG.info("Starting new charging session for vehicle %s due to connector locked state", self.vehicle.vin)
+                        # In case this was an interrupted charging session (interrupt no longer than 24hours), continue by erasing end time
+                        if self.last_charging_session is not None and not self.last_charging_session.was_disconnected() \
+                            and (self.last_charging_session.plug_unlocked_date is None
+                                 or self.last_charging_session.plug_unlocked_date > ((element.last_changed or datetime.now(timezone.utc))
+                                                                                     - timedelta(hours=24))):
+                            LOG.debug("found a closed charging session that was not disconneced. This could be an interrupted session we want to continue")
+                            try:
+                                self.last_charging_session.plug_unlocked_date = None
+                                session.commit()
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while changing charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+                        else:
+                            LOG.info("Starting new charging session for vehicle %s due to connector locked state on startup", self.vehicle.vin)
                         new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_locked_date=element.last_changed)
                         try:
                             session.add(new_session)
