@@ -55,8 +55,9 @@ class ClimatizationAgent(BaseAgent):
                     if self.last_state is not None:
                         self.last_state = session.merge(self.last_state)
                         session.refresh(self.last_state)
-                    if (self.last_state is None or self.last_state.state != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_state is None or (self.last_state.state != element.value
+                                                             and element.last_updated > self.last_state.last_date)):
                         new_state: ClimatizationState = ClimatizationState(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                            last_date=element.last_updated, state=element.value)
                         try:

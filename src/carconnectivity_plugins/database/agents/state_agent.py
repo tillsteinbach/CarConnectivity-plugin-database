@@ -69,8 +69,9 @@ class StateAgent(BaseAgent):
                     if self.last_state is not None:
                         self.last_state = session.merge(self.last_state)
                         session.refresh(self.last_state)
-                    if (self.last_state is None or self.last_state.state != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_state is None or (self.last_state.state != element.value
+                                                             and element.last_updated > self.last_state.last_date)):
                         new_state: State = State(vin=self.vehicle.vin, first_date=element.last_updated, last_date=element.last_updated, state=element.value)
                         try:
                             session.add(new_state)
@@ -102,8 +103,9 @@ class StateAgent(BaseAgent):
                     if self.last_connection_state is not None:
                         self.last_connection_state = session.merge(self.last_connection_state)
                         session.refresh(self.last_connection_state)
-                    if (self.last_connection_state is None or self.last_connection_state.connection_state != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_connection_state is None or (self.last_connection_state.connection_state != element.value
+                                                                        and element.last_updated > self.last_connection_state.last_date)):
                         new_connection_state: ConnectionState = ConnectionState(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                                 last_date=element.last_updated, connection_state=element.value)
                         try:
@@ -136,8 +138,9 @@ class StateAgent(BaseAgent):
                     if self.last_outside_temperature is not None:
                         self.last_outside_temperature = session.merge(self.last_outside_temperature)
                         session.refresh(self.last_outside_temperature)
-                    if (self.last_outside_temperature is None or self.last_outside_temperature.outside_temperature != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_outside_temperature is None or (self.last_outside_temperature.outside_temperature != element.value
+                                                                           and element.last_updated > self.last_outside_temperature.last_date)):
                         new_outside_temperature: OutsideTemperature = OutsideTemperature(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                                          last_date=element.last_updated, outside_temperature=element.value)
                         try:

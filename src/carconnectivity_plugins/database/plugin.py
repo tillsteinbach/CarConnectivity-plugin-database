@@ -136,7 +136,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
     def __on_add_vehicle(self, element, flags) -> None:
         del flags
         with self.vehicles_lock:
-            if isinstance(element, GenericVehicle) and element.vin not in self.vehicles:
+            if isinstance(element, GenericVehicle) and element.vin.value not in self.vehicles:
                 LOG.debug('New vehicle added to garage: %s', element.vin)
                 if element.vin.value is not None:
                     with self.scoped_session_factory() as session:

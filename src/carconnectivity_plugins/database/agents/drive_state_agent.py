@@ -122,8 +122,9 @@ class DriveStateAgent(BaseAgent):
                     if self.last_level is not None:
                         self.last_level = session.merge(self.last_level)
                         session.refresh(self.last_level)
-                    if (self.last_level is None or self.last_level.level != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_level is None or (self.last_level.level != element.value
+                                                             and element.last_updated > self.last_level.last_date)):
                         new_level: DriveLevel = DriveLevel(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
                                                            level=element.value)
                         try:
@@ -158,8 +159,9 @@ class DriveStateAgent(BaseAgent):
                     if self.last_range is not None:
                         self.last_range = session.merge(self.last_range)
                         session.refresh(self.last_range)
-                    if (self.last_range is None or self.last_range.range != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_range is None or (self.last_range.range != element.value
+                                                             and element.last_updated > self.last_range.last_date)):
                         new_range: DriveRange = DriveRange(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
                                                            range=element.value)
                         try:
@@ -194,8 +196,9 @@ class DriveStateAgent(BaseAgent):
                     if self.last_range_estimated_full is not None:
                         self.last_range_estimated_full = session.merge(self.last_range_estimated_full)
                         session.refresh(self.last_range_estimated_full)
-                    if (self.last_range_estimated_full is None or self.last_range_estimated_full.range_estimated_full != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_range_estimated_full is None or (self.last_range_estimated_full.range_estimated_full != element.value
+                                                                            and element.last_updated > self.last_range_estimated_full.last_date)):
                         new_range: DriveRangeEstimatedFull = DriveRangeEstimatedFull(drive_id=self.drive.id, first_date=element.last_updated,
                                                                                      last_date=element.last_updated, range_estimated_full=element.value)
                         try:
@@ -310,8 +313,9 @@ class DriveStateAgent(BaseAgent):
                     if self.last_electric_consumption is not None:
                         self.last_electric_consumption = session.merge(self.last_electric_consumption)
                         session.refresh(self.last_electric_consumption)
-                    if (self.last_electric_consumption is None or self.last_electric_consumption.consumption != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_electric_consumption is None or (self.last_electric_consumption.consumption != element.value
+                                                                            and element.last_updated > self.last_electric_consumption.last_date)):
                         new_level: DriveConsumption = DriveConsumption(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
                                                                        consumption=element.value)
                         try:
@@ -346,8 +350,9 @@ class DriveStateAgent(BaseAgent):
                     if self.last_fuel_consumption is not None:
                         self.last_fuel_consumption = session.merge(self.last_fuel_consumption)
                         session.refresh(self.last_fuel_consumption)
-                    if (self.last_fuel_consumption is None or self.last_fuel_consumption.consumption != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_fuel_consumption is None or (self.last_fuel_consumption.consumption != element.value
+                                                                        and element.last_updated > self.last_fuel_consumption.last_date)):
                         new_level: DriveConsumption = DriveConsumption(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
                                                                        consumption=element.value)
                         try:

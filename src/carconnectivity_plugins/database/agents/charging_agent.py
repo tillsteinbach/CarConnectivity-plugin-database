@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import scoped_session
     from sqlalchemy.orm.session import Session
 
-    from carconnectivity.attributes import EnumAttribute, SpeedAttribute, PowerAttribute
+    from carconnectivity.attributes import EnumAttribute, SpeedAttribute, PowerAttribute, FloatAttribute
 
     from carconnectivity_plugins.database.plugin import Plugin
     from carconnectivity_plugins.database.model.vehicle import Vehicle
@@ -72,8 +72,6 @@ class ChargingAgent(BaseAgent):
                 else:
                     LOG.info("Last charging session for vehicle %s is still open during startup, but we are not charging, ignoring it", vehicle.vin)
                     self.last_charging_session = None
-            else:
-                self.last_charging_session = None
 
             self.last_charging_state: Optional[ChargingState] = session.query(ChargingState).filter(ChargingState.vehicle == vehicle)\
                 .order_by(ChargingState.first_date.desc()).first()
@@ -108,6 +106,10 @@ class ChargingAgent(BaseAgent):
                 self.__on_charging_power_change(self.carconnectivity_vehicle.charging.power, Observable.ObserverEvent.UPDATED)
 
             self.carconnectivity_vehicle.charging.type.add_observer(self._on_charging_type_change, Observable.ObserverEvent.VALUE_CHANGED)
+
+            electric_drive: Optional[ElectricDrive] = self.carconnectivity_vehicle.get_electric_drive()
+            if electric_drive is not None:
+                electric_drive.level.add_observer(self._on_battery_level_change, Observable.ObserverEvent.VALUE_CHANGED)
         self.session_factory.remove()
 
     def __on_charging_state_change(self, element: EnumAttribute[Charging.ChargingState], flags: Observable.ObserverEvent) -> None:
@@ -121,8 +123,9 @@ class ChargingAgent(BaseAgent):
                     if self.last_charging_state is not None:
                         self.last_charging_state = session.merge(self.last_charging_state)
                         session.refresh(self.last_charging_state)
-                    if (self.last_charging_state is None or self.last_charging_state.state != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_charging_state is None or (self.last_charging_state.state != element.value
+                                                                      and element.last_updated > self.last_charging_state.last_date)):
                         new_charging_state: ChargingState = ChargingState(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                           last_date=element.last_updated, state=element.value)
                         try:
@@ -250,8 +253,9 @@ class ChargingAgent(BaseAgent):
                     if self.last_charging_rate is not None:
                         self.last_charging_rate = session.merge(self.last_charging_rate)
                         session.refresh(self.last_charging_rate)
-                    if (self.last_charging_rate is None or self.last_charging_rate.rate != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_charging_rate is None or (self.last_charging_rate.rate != element.value
+                                                                     and element.last_updated > self.last_charging_rate.last_date)):
                         new_charging_rate: ChargingRate = ChargingRate(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                        last_date=element.last_updated, rate=element.value)
                         try:
@@ -285,8 +289,9 @@ class ChargingAgent(BaseAgent):
                     if self.last_charging_power is not None:
                         self.last_charging_power = session.merge(self.last_charging_power)
                         session.refresh(self.last_charging_power)
-                    if (self.last_charging_power is None or self.last_charging_power.power != element.value) \
-                            and element.last_updated is not None:
+                    if element.last_updated is not None \
+                            and (self.last_charging_power is None or (self.last_charging_power.power != element.value
+                                                                     and element.last_updated > self.last_charging_power.last_date)):
                         new_charging_power: ChargingPower = ChargingPower(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                           last_date=element.last_updated, power=element.value)
                         try:
@@ -362,19 +367,24 @@ class ChargingAgent(BaseAgent):
                 elif element.value == ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
                         and self.carconnectivity_last_connector_state == ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
                     if self.last_charging_session is None or self.last_charging_session.is_closed():
-                        LOG.info("Starting new charging session for vehicle %s due to connector connected state", self.vehicle.vin)
-                        new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_connected_date=element.last_changed)
-                        try:
-                            session.add(new_session)
-                            self._update_session_odometer(session, new_session)
-                            self._update_session_position(session, new_session)
-                            session.commit()
-                            LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
-                            self.last_charging_session = new_session
-                        except DatabaseError as err:
-                            session.rollback()
-                            LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+                        # when the incoming connected state was during the last session, this is a continuation
+                        if self.last_charging_session is None or element.last_changed is not None and element.last_changed > \
+                                (self.last_charging_session.session_end_date
+                                 or self.last_charging_session.plug_unlocked_date
+                                 or datetime.min.replace(tzinfo=timezone.utc)):
+                            LOG.info("Starting new charging session for vehicle %s due to connector connected state on startup", self.vehicle.vin)
+                            new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_connected_date=element.last_changed)
+                            try:
+                                session.add(new_session)
+                                self._update_session_odometer(session, new_session)
+                                self._update_session_position(session, new_session)
+                                session.commit()
+                                LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
+                                self.last_charging_session = new_session
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_charging_session is not None and not self.last_charging_session.was_connected():
                         try:
                             self.last_charging_session.plug_connected_date = element.last_changed
@@ -558,4 +568,27 @@ class ChargingAgent(BaseAgent):
                             session.rollback()
                             LOG.error('DatabaseError while updating type of charging session for vehicle %s in database: %s', self.vehicle.vin, err)
                             self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+            self.session_factory.remove()
+
+    def _on_battery_level_change(self, element: FloatAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        if element.enabled and element.value is not None:
+            # We try to see if there was a late battery level update for a finished session
+            with self.session_factory() as session:
+                with self.last_charging_session_lock:
+                    if self.last_charging_session is not None:
+                        self.last_charging_session = session.merge(self.last_charging_session)
+                        session.refresh(self.last_charging_session)
+                    if self.last_charging_session is not None and self.last_charging_session.session_end_date is not None:
+                        if element.last_updated is not None and (element.last_updated <= (self.last_charging_session.session_end_date + timedelta(minutes=1))):
+                            # Only update if we have no end level yet or the new level is higher than the previous one (this happens with late level updates)
+                            if self.last_charging_session.end_level is None or self.last_charging_session.end_level < element.value:
+                                try:
+                                    self.last_charging_session.end_level = element.value
+                                    session.commit()
+                                except DatabaseError as err:
+                                    session.rollback()
+                                    LOG.error('DatabaseError while updating battery level of charging session for vehicle %s in database: %s',
+                                              self.vehicle.vin, err)
+                                    self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
             self.session_factory.remove()
