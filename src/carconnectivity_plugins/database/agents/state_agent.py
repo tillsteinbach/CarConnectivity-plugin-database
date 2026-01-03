@@ -31,12 +31,13 @@ LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents
 
 
 class StateAgent(BaseAgent):
-    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
-        if vehicle is None or vehicle.carconnectivity_vehicle is None:
+    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle, carconnectivity_vehicle: GenericVehicle) -> None:
+        if vehicle is None or carconnectivity_vehicle is None:
             raise ValueError("Vehicle or its carconnectivity_vehicle attribute is None")
         self.database_plugin: Plugin = database_plugin
         self.session_factory: scoped_session[Session] = session_factory
         self.vehicle: Vehicle = vehicle
+        self.carconnectivity_vehicle: GenericVehicle = carconnectivity_vehicle
 
         with self.session_factory() as session:
             self.last_state: Optional[State] = session.query(State).filter(State.vehicle == vehicle).order_by(State.first_date.desc()).first()
@@ -50,14 +51,14 @@ class StateAgent(BaseAgent):
                 .order_by(OutsideTemperature.first_date.desc()).first()
             self.last_outside_temperature_lock: threading.RLock = threading.RLock()
 
-            vehicle.carconnectivity_vehicle.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
-            self.__on_state_change(vehicle.carconnectivity_vehicle.state, Observable.ObserverEvent.UPDATED)
+            self.carconnectivity_vehicle.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
+            self.__on_state_change(self.carconnectivity_vehicle.state, Observable.ObserverEvent.UPDATED)
 
-            vehicle.carconnectivity_vehicle.connection_state.add_observer(self.__on_connection_state_change, Observable.ObserverEvent.UPDATED)
-            self.__on_connection_state_change(vehicle.carconnectivity_vehicle.connection_state, Observable.ObserverEvent.UPDATED)
+            self.carconnectivity_vehicle.connection_state.add_observer(self.__on_connection_state_change, Observable.ObserverEvent.UPDATED)
+            self.__on_connection_state_change(self.carconnectivity_vehicle.connection_state, Observable.ObserverEvent.UPDATED)
 
-            vehicle.carconnectivity_vehicle.outside_temperature.add_observer(self.__on_outside_temperature_change, Observable.ObserverEvent.UPDATED)
-            self.__on_outside_temperature_change(vehicle.carconnectivity_vehicle.outside_temperature, Observable.ObserverEvent.UPDATED)
+            self.carconnectivity_vehicle.outside_temperature.add_observer(self.__on_outside_temperature_change, Observable.ObserverEvent.UPDATED)
+            self.__on_outside_temperature_change(self.carconnectivity_vehicle.outside_temperature, Observable.ObserverEvent.UPDATED)
         self.session_factory.remove()
 
     def __on_state_change(self, element: EnumAttribute[GenericVehicle.State], flags: Observable.ObserverEvent) -> None:

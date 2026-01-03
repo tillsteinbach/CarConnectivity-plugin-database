@@ -93,11 +93,6 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                         session.commit()
                         self.car_connectivity.garage.add_observer(self.__on_add_vehicle, flag=Observable.ObserverEvent.ENABLED, on_transaction_end=True)
                         with self.vehicles_lock:
-                            self.vehicles = {vehicle.vin: vehicle for vehicle in session.query(Vehicle).all()}
-                            for vehicle in self.vehicles.values():
-                                car_connectivity_vehicle: Optional[GenericVehicle] = self.car_connectivity.garage.get_vehicle(vehicle.vin)
-                                if car_connectivity_vehicle is not None:
-                                    vehicle.connect(self, self.scoped_session_factory, car_connectivity_vehicle)
                             for garage_vehicle in self.car_connectivity.garage.list_vehicles():
                                 if garage_vehicle.vin.value is not None and garage_vehicle.vin.value not in self.vehicles:
                                     LOG.debug('New vehicle found in garage during startup: %s', garage_vehicle.vin.value)
@@ -117,7 +112,6 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                                     else:
                                         new_vehicle.connect(self, self.scoped_session_factory, garage_vehicle)
                                         self.vehicles[garage_vehicle.vin.value] = new_vehicle
-
                 except OperationalError as err:
                     LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
                     self.healthy._set_value(value=False)  # pylint: disable=protected-access

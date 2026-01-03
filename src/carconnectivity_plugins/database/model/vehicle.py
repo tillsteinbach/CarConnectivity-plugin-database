@@ -68,7 +68,6 @@ class Vehicle(Base):
     type: Mapped[Optional[GenericVehicle.Type]]
     license_plate: Mapped[Optional[str]]
 
-    carconnectivity_vehicle: Optional[GenericVehicle] = None
     agents: list[BaseAgent] = []
 
     def __init__(self, vin) -> None:
@@ -90,34 +89,33 @@ class Vehicle(Base):
             - Only enabled attributes are synchronized
             - The type attribute is only synchronized if it's not None
         """
-        if self.carconnectivity_vehicle is not None:
+        if self.agents:
             raise ValueError("Can only connect once! Vehicle already connected with database model")
-        self.carconnectivity_vehicle = carconnectivity_vehicle
-        self.carconnectivity_vehicle.name.add_observer(self.__on_name_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
-        if self.carconnectivity_vehicle.name.enabled and self.name != self.carconnectivity_vehicle.name.value:
-            self.name = self.carconnectivity_vehicle.name.value
-        self.carconnectivity_vehicle.manufacturer.add_observer(self.__on_manufacturer_change, Observable.ObserverEvent.VALUE_CHANGED,
-                                                               on_transaction_end=True)
-        if self.carconnectivity_vehicle.manufacturer.enabled and self.manufacturer != self.carconnectivity_vehicle.manufacturer.value:
-            self.manufacturer = self.carconnectivity_vehicle.manufacturer.value
-        self.carconnectivity_vehicle.model.add_observer(self.__on_model_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
-        if self.carconnectivity_vehicle.model.enabled and self.model != self.carconnectivity_vehicle.model.value:
-            self.model = self.carconnectivity_vehicle.model.value
-        self.carconnectivity_vehicle.model_year.add_observer(self.__on_model_year_change, Observable.ObserverEvent.VALUE_CHANGED,
-                                                             on_transaction_end=True)
-        if self.carconnectivity_vehicle.model_year.enabled and self.model_year != self.carconnectivity_vehicle.model_year.value:
-            self.model_year = self.carconnectivity_vehicle.model_year.value
-        self.carconnectivity_vehicle.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
-        if self.carconnectivity_vehicle.type.enabled and self.carconnectivity_vehicle.type.value is not None \
-                and self.type != self.carconnectivity_vehicle.type.value:
-            self.type = self.carconnectivity_vehicle.type.value
-        self.carconnectivity_vehicle.license_plate.add_observer(self.__on_license_plate_change, Observable.ObserverEvent.VALUE_CHANGED,
-                                                                on_transaction_end=True)
-        if self.carconnectivity_vehicle.license_plate.enabled and self.license_plate != self.carconnectivity_vehicle.license_plate.value:
-            self.license_plate = self.carconnectivity_vehicle.license_plate.value
+        carconnectivity_vehicle.name.add_observer(self.__on_name_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+        if carconnectivity_vehicle.name.enabled and self.name != carconnectivity_vehicle.name.value:
+            self.name = carconnectivity_vehicle.name.value
+        carconnectivity_vehicle.manufacturer.add_observer(self.__on_manufacturer_change, Observable.ObserverEvent.VALUE_CHANGED,
+                                                          on_transaction_end=True)
+        if carconnectivity_vehicle.manufacturer.enabled and self.manufacturer != carconnectivity_vehicle.manufacturer.value:
+            self.manufacturer = carconnectivity_vehicle.manufacturer.value
+        carconnectivity_vehicle.model.add_observer(self.__on_model_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+        if carconnectivity_vehicle.model.enabled and self.model != carconnectivity_vehicle.model.value:
+            self.model = carconnectivity_vehicle.model.value
+        carconnectivity_vehicle.model_year.add_observer(self.__on_model_year_change, Observable.ObserverEvent.VALUE_CHANGED,
+                                                        on_transaction_end=True)
+        if carconnectivity_vehicle.model_year.enabled and self.model_year != carconnectivity_vehicle.model_year.value:
+            self.model_year = carconnectivity_vehicle.model_year.value
+        carconnectivity_vehicle.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+        if carconnectivity_vehicle.type.enabled and carconnectivity_vehicle.type.value is not None \
+                and self.type != carconnectivity_vehicle.type.value:
+            self.type = carconnectivity_vehicle.type.value
+        carconnectivity_vehicle.license_plate.add_observer(self.__on_license_plate_change, Observable.ObserverEvent.VALUE_CHANGED,
+                                                           on_transaction_end=True)
+        if carconnectivity_vehicle.license_plate.enabled and self.license_plate != carconnectivity_vehicle.license_plate.value:
+            self.license_plate = carconnectivity_vehicle.license_plate.value
 
         with session_factory() as session:
-            for drive_id, drive in self.carconnectivity_vehicle.drives.drives.items():
+            for drive_id, drive in carconnectivity_vehicle.drives.drives.items():
                 drive_db: Optional[Drive] = session.query(Drive).filter(Drive.vin == self.vin, Drive.drive_id == drive_id).first()
                 if drive_db is None:
                     drive_db = Drive(vin=self.vin, drive_id=drive_id)
@@ -139,18 +137,18 @@ class Vehicle(Base):
                     drive_db.connect(database_plugin, session_factory, drive)
                     LOG.debug('Connecting drive %s for vehicle %s', drive_id, self.vin)
 
-            state_agent: StateAgent = StateAgent(database_plugin, session_factory, self)
+            state_agent: StateAgent = StateAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
             self.agents.append(state_agent)
             LOG.debug("Adding StateAgent to vehicle %s", self.vin)
-            climazination_agent: ClimatizationAgent = ClimatizationAgent(database_plugin, session_factory, self)
+            climazination_agent: ClimatizationAgent = ClimatizationAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
             self.agents.append(climazination_agent)
             LOG.debug("Adding ClimatizationAgent to vehicle %s", self.vin)
-            trip_agent: TripAgent = TripAgent(database_plugin, session_factory, self)
+            trip_agent: TripAgent = TripAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
             self.agents.append(trip_agent)
             LOG.debug("Adding TripAgent to vehicle %s", self.vin)
 
-            if isinstance(self.carconnectivity_vehicle, ElectricVehicle):
-                charging_agent: ChargingAgent = ChargingAgent(database_plugin, session_factory, self)
+            if isinstance(carconnectivity_vehicle, ElectricVehicle):
+                charging_agent: ChargingAgent = ChargingAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
                 self.agents.append(charging_agent)
                 LOG.debug("Adding ChargingAgent to vehicle %s", self.vin)
         session_factory.remove()

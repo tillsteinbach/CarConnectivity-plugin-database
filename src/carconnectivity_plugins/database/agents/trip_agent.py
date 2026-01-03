@@ -41,7 +41,7 @@ class TripAgent(BaseAgent):
             of the vehicle to detect state transitions.
         trip (Optional[Trip]): The currently active trip, if any.
     Raises:
-        ValueError: If vehicle or vehicle.carconnectivity_vehicle is None during initialization.
+        ValueError: If vehicle or self.carconnectivity_vehicle is None during initialization.
     Notes:
         - A new trip is started when the vehicle transitions to IGNITION_ON or DRIVING state.
         - A trip is ended when the vehicle transitions from IGNITION_ON/DRIVING to another state.
@@ -50,12 +50,14 @@ class TripAgent(BaseAgent):
         - Trip records include start/end dates and odometer readings when available.
     """
 
-    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
-        if vehicle is None or vehicle.carconnectivity_vehicle is None:
+    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle, carconnectivity_vehicle: GenericVehicle) -> None:
+        if vehicle is None or carconnectivity_vehicle is None:
             raise ValueError("Vehicle or its carconnectivity_vehicle attribute is None")
         self.database_plugin: Plugin = database_plugin
         self.session_factory: scoped_session[Session] = session_factory
         self.vehicle: Vehicle = vehicle
+        self.carconnectivity_vehicle: GenericVehicle = carconnectivity_vehicle
+
         self.last_carconnectivity_state: Optional[GenericVehicle.State] = None
         self.last_parked_position_latitude: Optional[float] = None
         self.last_parked_position_longitude: Optional[float] = None
@@ -69,19 +71,19 @@ class TripAgent(BaseAgent):
                     LOG.info("Last trip for vehicle %s is still open during startup, closing it now", vehicle.vin)
         self.session_factory.remove()
 
-        vehicle.carconnectivity_vehicle.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
-        self.__on_state_change(vehicle.carconnectivity_vehicle.state, Observable.ObserverEvent.UPDATED)
+        self.carconnectivity_vehicle.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
+        self.__on_state_change(self.carconnectivity_vehicle.state, Observable.ObserverEvent.UPDATED)
 
-        vehicle.carconnectivity_vehicle.position.latitude.add_observer(self._on_position_latitude_change, Observable.ObserverEvent.UPDATED)
-        self._on_position_latitude_change(vehicle.carconnectivity_vehicle.position.latitude, Observable.ObserverEvent.UPDATED)
+        self.carconnectivity_vehicle.position.latitude.add_observer(self._on_position_latitude_change, Observable.ObserverEvent.UPDATED)
+        self._on_position_latitude_change(self.carconnectivity_vehicle.position.latitude, Observable.ObserverEvent.UPDATED)
 
-        vehicle.carconnectivity_vehicle.position.longitude.add_observer(self._on_position_longitude_change, Observable.ObserverEvent.UPDATED)
-        self._on_position_longitude_change(vehicle.carconnectivity_vehicle.position.longitude, Observable.ObserverEvent.UPDATED)
+        self.carconnectivity_vehicle.position.longitude.add_observer(self._on_position_longitude_change, Observable.ObserverEvent.UPDATED)
+        self._on_position_longitude_change(self.carconnectivity_vehicle.position.longitude, Observable.ObserverEvent.UPDATED)
 
     def __on_state_change(self, element: EnumAttribute[GenericVehicle.State], flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:
-            if self.vehicle.carconnectivity_vehicle is None:
+            if self.carconnectivity_vehicle is None:
                 raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
             if element.enabled and element.value is not None:
                 if self.last_carconnectivity_state is not None:
@@ -99,9 +101,9 @@ class TripAgent(BaseAgent):
                                 LOG.info("Starting new trip for vehicle %s", self.vehicle.vin)
                                 start_date: datetime = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
                                 new_trip: Trip = Trip(vin=self.vehicle.vin, start_date=start_date)
-                                if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
-                                        self.vehicle.carconnectivity_vehicle.odometer.value is not None:
-                                    new_trip.start_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
+                                if self.carconnectivity_vehicle.odometer.enabled and \
+                                        self.carconnectivity_vehicle.odometer.value is not None:
+                                    new_trip.start_odometer = self.carconnectivity_vehicle.odometer.value
                                 if not self._update_trip_position(session=session, trip=new_trip, start=True):
                                     # if now no position is available try the last known position that is not older than 5min
                                     if self.last_parked_position_latitude is not None and self.last_parked_position_longitude is not None \
@@ -125,9 +127,9 @@ class TripAgent(BaseAgent):
                                     LOG.info("Ending trip for vehicle %s", self.vehicle.vin)
                                     try:
                                         self.trip.destination_date = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
-                                        if self.vehicle.carconnectivity_vehicle.odometer.enabled and \
-                                                self.vehicle.carconnectivity_vehicle.odometer.value is not None:
-                                            self.trip.destination_odometer = self.vehicle.carconnectivity_vehicle.odometer.value
+                                        if self.carconnectivity_vehicle.odometer.enabled and \
+                                                self.carconnectivity_vehicle.odometer.value is not None:
+                                            self.trip.destination_odometer = self.carconnectivity_vehicle.odometer.value
                                             LOG.debug('Set destination odometer %.2f for trip of vehicle %s', self.trip.destination_odometer, self.vehicle.vin)
                                         if self._update_trip_position(session=session, trip=self.trip, start=False):
                                             self.trip = None
@@ -170,28 +172,28 @@ class TripAgent(BaseAgent):
 
     def _update_trip_position(self, session: Session, trip: Trip, start: bool,
                               latitude: Optional[float] = None, longitude: Optional[float] = None) -> bool:
-        if self.vehicle.carconnectivity_vehicle is None:
+        if self.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
         if latitude or longitude is None:
-            if self.vehicle.carconnectivity_vehicle.position.enabled and self.vehicle.carconnectivity_vehicle.position.latitude.enabled \
-                    and self.vehicle.carconnectivity_vehicle.position.longitude.enabled \
-                    and self.vehicle.carconnectivity_vehicle.position.latitude.value is not None \
-                    and self.vehicle.carconnectivity_vehicle.position.longitude.value is not None:
-                latitude = self.vehicle.carconnectivity_vehicle.position.latitude.value
-                longitude = self.vehicle.carconnectivity_vehicle.position.longitude.value
+            if self.carconnectivity_vehicle.position.enabled and self.carconnectivity_vehicle.position.latitude.enabled \
+                    and self.carconnectivity_vehicle.position.longitude.enabled \
+                    and self.carconnectivity_vehicle.position.latitude.value is not None \
+                    and self.carconnectivity_vehicle.position.longitude.value is not None:
+                latitude = self.carconnectivity_vehicle.position.latitude.value
+                longitude = self.carconnectivity_vehicle.position.longitude.value
         if latitude is not None and longitude is not None:
             if start:
                 if trip.start_position_latitude is None and trip.start_position_longitude is None:
                     try:
-                        trip.start_position_latitude = self.vehicle.carconnectivity_vehicle.position.latitude.value
-                        trip.start_position_longitude = self.vehicle.carconnectivity_vehicle.position.longitude.value
+                        trip.start_position_latitude = self.carconnectivity_vehicle.position.latitude.value
+                        trip.start_position_longitude = self.carconnectivity_vehicle.position.longitude.value
                         session.commit()
                     except DatabaseError as err:
                         session.rollback()
                         LOG.error('DatabaseError while updating position for trip of vehicle %s in database: %s', self.vehicle.vin, err)
                         self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-                if trip.start_location is None and self.vehicle.carconnectivity_vehicle.position.location.enabled:
-                    location: Location = Location.from_carconnectivity_location(location=self.vehicle.carconnectivity_vehicle.position.location)
+                if trip.start_location is None and self.carconnectivity_vehicle.position.location.enabled:
+                    location: Location = Location.from_carconnectivity_location(location=self.carconnectivity_vehicle.position.location)
                     try:
                         location = session.merge(location)
                         trip.start_location = location
@@ -204,15 +206,15 @@ class TripAgent(BaseAgent):
             else:
                 if trip.destination_position_latitude is None and trip.destination_position_longitude is None:
                     try:
-                        trip.destination_position_latitude = self.vehicle.carconnectivity_vehicle.position.latitude.value
-                        trip.destination_position_longitude = self.vehicle.carconnectivity_vehicle.position.longitude.value
+                        trip.destination_position_latitude = self.carconnectivity_vehicle.position.latitude.value
+                        trip.destination_position_longitude = self.carconnectivity_vehicle.position.longitude.value
                         session.commit()
                     except DatabaseError as err:
                         session.rollback()
                         LOG.error('DatabaseError while updating position for trip of vehicle %s in database: %s', self.vehicle.vin, err)
                         self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-                if trip.destination_location is None and self.vehicle.carconnectivity_vehicle.position.location.enabled:
-                    location: Location = Location.from_carconnectivity_location(location=self.vehicle.carconnectivity_vehicle.position.location)
+                if trip.destination_location is None and self.carconnectivity_vehicle.position.location.enabled:
+                    location: Location = Location.from_carconnectivity_location(location=self.carconnectivity_vehicle.position.location)
                     try:
                         location = session.merge(location)
                         trip.destination_location = location

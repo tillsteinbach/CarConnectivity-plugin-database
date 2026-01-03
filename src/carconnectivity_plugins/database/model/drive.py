@@ -58,7 +58,6 @@ class Drive(Base):
     capacity_total: Mapped[Optional[float]]
     wltp_range: Mapped[Optional[float]]
 
-    carconnectivity_drive: Optional[GenericDrive] = None
     agents: list[BaseAgent] = []
 
     def __init__(self, vin, drive_id: Optional[str] = None) -> None:
@@ -80,10 +79,8 @@ class Drive(Base):
             - Automatically syncs the drive type if enabled and has a value
             - Creates and registers a DriveStateAgent for managing drive state
         """
-        if self.carconnectivity_drive is not None:
+        if self.agents:
             raise ValueError("Can only connect once! Drive already connected with database model")
-        self.carconnectivity_drive = carconnectivity_drive
         LOG.debug("Adding DriveStateAgent to drive %s of vehicle %s", self.drive_id, self.vin)
-        drive_state_agent: DriveStateAgent = DriveStateAgent(database_plugin, session_factory, self)  # type: ignore[assignment]
+        drive_state_agent: DriveStateAgent = DriveStateAgent(database_plugin, session_factory, self, carconnectivity_drive)  # type: ignore[assignment]
         self.agents.append(drive_state_agent)
-        

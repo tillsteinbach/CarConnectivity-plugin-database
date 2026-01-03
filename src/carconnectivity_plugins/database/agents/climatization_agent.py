@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm.session import Session
 
     from carconnectivity.attributes import EnumAttribute
+    from carconnectivity.vehicle import GenericVehicle
 
     from carconnectivity.climatization import Climatization
 
@@ -29,20 +30,21 @@ LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents
 
 
 class ClimatizationAgent(BaseAgent):
-    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle) -> None:
-        if vehicle is None or vehicle.carconnectivity_vehicle is None:
+    def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle, carconnectivity_vehicle: GenericVehicle) -> None:
+        if vehicle is None or carconnectivity_vehicle is None:
             raise ValueError("Vehicle or its carconnectivity_vehicle attribute is None")
         self.database_plugin: Plugin = database_plugin
         self.session_factory: scoped_session[Session] = session_factory
         self.vehicle: Vehicle = vehicle
+        self.carconnectivity_vehicle: GenericVehicle = carconnectivity_vehicle
 
         with self.session_factory() as session:
             self.last_state: Optional[ClimatizationState] = session.query(ClimatizationState).filter(ClimatizationState.vehicle == vehicle)\
                 .order_by(ClimatizationState.first_date.desc()).first()
             self.last_state_lock: threading.RLock = threading.RLock()
 
-            vehicle.carconnectivity_vehicle.climatization.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
-            self.__on_state_change(vehicle.carconnectivity_vehicle.climatization.state, Observable.ObserverEvent.UPDATED)
+            self.carconnectivity_vehicle.climatization.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
+            self.__on_state_change(self.carconnectivity_vehicle.climatization.state, Observable.ObserverEvent.UPDATED)
         self.session_factory.remove()
 
     def __on_state_change(self, element: EnumAttribute[Climatization.ClimatizationState], flags: Observable.ObserverEvent) -> None:
