@@ -291,7 +291,7 @@ class ChargingAgent(BaseAgent):
                         session.refresh(self.last_charging_power)
                     if element.last_updated is not None \
                             and (self.last_charging_power is None or (self.last_charging_power.power != element.value
-                                                                     and element.last_updated > self.last_charging_power.last_date)):
+                                                                      and element.last_updated > self.last_charging_power.last_date)):
                         new_charging_power: ChargingPower = ChargingPower(vin=self.vehicle.vin, first_date=element.last_updated,
                                                                           last_date=element.last_updated, power=element.value)
                         try:
@@ -326,6 +326,7 @@ class ChargingAgent(BaseAgent):
                     session.refresh(self.last_charging_session)
 
                 if element.value == ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
+                        and self.carconnectivity_last_connector_state is not None \
                         and self.carconnectivity_last_connector_state != ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
                     if self.last_charging_session is None or self.last_charging_session.is_closed():
                         LOG.info("Starting new charging session for vehicle %s  due to connector connected state", self.vehicle.vin)
