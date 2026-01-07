@@ -212,13 +212,15 @@ class ChargingAgent(BaseAgent):
                             if self.last_charging_session is not None and isinstance(self.carconnectivity_vehicle, ElectricVehicle):
                                 electric_drive: Optional[ElectricDrive] = self.carconnectivity_vehicle.get_electric_drive()
                                 if electric_drive is not None and electric_drive.level.enabled and electric_drive.level.value is not None:
-                                    try:
-                                        self.last_charging_session.start_level = electric_drive.level.value
-                                        session.commit()
-                                    except DatabaseError as err:
-                                        session.rollback()
-                                        LOG.error('DatabaseError while setting start level for vehicle %s in database: %s', self.vehicle.vin, err)
-                                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+                                    if self.last_charging_session.start_level is None:
+                                        try:
+                                            
+                                            self.last_charging_session.start_level = electric_drive.level.value
+                                            session.commit()
+                                        except DatabaseError as err:
+                                            session.rollback()
+                                            LOG.error('DatabaseError while setting start level for vehicle %s in database: %s', self.vehicle.vin, err)
+                                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                         elif element.value not in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
                                 and self.carconnectivity_last_charging_state in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION):
                             if self.last_charging_session is not None and not self.last_charging_session.was_ended():
