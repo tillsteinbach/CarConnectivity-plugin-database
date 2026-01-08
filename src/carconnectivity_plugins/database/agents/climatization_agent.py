@@ -1,6 +1,6 @@
-    """
-    Agent for monitoring and persisting climatization state changes to the database.
-    """
+"""
+Agent for monitoring and persisting climatization state changes to the database.
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
