@@ -87,7 +87,7 @@ class ChargingAgent(BaseAgent):
         ValueError: If vehicle or carconnectivity_vehicle is None, or if carconnectivity_vehicle
             is not an ElectricVehicle instance.
     """
-
+    # pylint: disable-next=too-many-statements
     def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle,
                  carconnectivity_vehicle: ElectricVehicle) -> None:
         if vehicle is None or carconnectivity_vehicle is None:

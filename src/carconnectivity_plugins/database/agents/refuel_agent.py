@@ -10,6 +10,7 @@ from sqlalchemy.exc import DatabaseError
 
 from carconnectivity.observable import Observable
 from carconnectivity.vehicle import GenericVehicle
+from carconnectivity.drive import CombustionDrive
 from carconnectivity.location import Location as CarConnectivityLocation
 from carconnectivity.position import Position
 from carconnectivity_services.base.service import BaseService, ServiceType
@@ -18,6 +19,7 @@ from carconnectivity_services.location.location_service import LocationService
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 
 from carconnectivity_plugins.database.model.refuel_session import RefuelSession
+from carconnectivity_plugins.database.model.location import Location
 
 if TYPE_CHECKING:
     from typing import Optional
@@ -25,18 +27,15 @@ if TYPE_CHECKING:
     from sqlalchemy.orm.session import Session
 
     from carconnectivity.attributes import LevelAttribute, FloatAttribute
-    from carconnectivity.drive import CombustionDrive
 
     from carconnectivity_plugins.database.plugin import Plugin
-
-    from carconnectivity_plugins.database.model.location import Location
 
 
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.climatization_agent")
 
 
 # pylint: disable=duplicate-code
-# pylint: disable-next=too-few-public-methods
+# pylint: disable-next=too-few-public-methods,too-many-instance-attributes
 class RefuelAgent(BaseAgent):
     """
     Agent responsible for tracking and recording vehicle refueling sessions.
