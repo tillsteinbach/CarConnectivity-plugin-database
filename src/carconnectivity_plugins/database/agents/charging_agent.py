@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.charging_agent")
 
 
+# pylint: disable=duplicate-code
 # pylint: disable-next=too-many-instance-attributes, too-few-public-methods
 class ChargingAgent(BaseAgent):
     """
@@ -213,6 +214,7 @@ class ChargingAgent(BaseAgent):
                                     allowed_interrupt = timedelta(hours=300)
                                 # We can reuse the session if the vehicle was connected and not disconnected in the meantime
                                 # And the session end date was not set or is within the allowed interrupt time
+                                # pylint: disable-next=too-many-boolean-expressions
                                 if self.last_charging_session is not None \
                                         and self.last_charging_session.was_connected() and not self.last_charging_session.was_disconnected() \
                                         and (self.last_charging_session.session_end_date is None or element.last_changed is None

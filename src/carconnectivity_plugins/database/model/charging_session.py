@@ -24,7 +24,7 @@ charging_tag_association_table = Table('charging_sessions_tags', Base.metadata,
                                        )
 
 
-class ChargingSession(Base):  # pylint: disable=too-few-public-methods
+class ChargingSession(Base):  # pylint: disable=too-few-public-methods,too-many-instance-attributes
     """
     Represents a charging session for an electric vehicle.
     This class models a complete charging session lifecycle, tracking various timestamps

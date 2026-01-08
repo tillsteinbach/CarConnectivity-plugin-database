@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.trip_agent")
 
 
+#  pylint: disable=duplicate-code
 # pylint: disable-next=too-many-instance-attributes, too-few-public-methods
 class TripAgent(BaseAgent):
     """
@@ -83,6 +84,7 @@ class TripAgent(BaseAgent):
         self.carconnectivity_vehicle.position.longitude.add_observer(self._on_position_longitude_change, Observable.ObserverEvent.UPDATED)
         self._on_position_longitude_change(self.carconnectivity_vehicle.position.longitude, Observable.ObserverEvent.UPDATED)
 
+    # pylint: disable-next=too-many-branches
     def __on_state_change(self, element: EnumAttribute[GenericVehicle.State], flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:
@@ -173,6 +175,7 @@ class TripAgent(BaseAgent):
                                                    longitude=self.last_parked_position_longitude)
             self.session_factory.remove()
 
+    # pylint: disable-next=too-many-arguments,too-many-positional-arguments,too-many-branches
     def _update_trip_position(self, session: Session, trip: Trip, start: bool,
                               latitude: Optional[float] = None, longitude: Optional[float] = None) -> bool:
         if self.carconnectivity_vehicle is None:
@@ -206,25 +209,24 @@ class TripAgent(BaseAgent):
                         LOG.error('DatabaseError while merging location for trip of vehicle %s in database: %s', self.vehicle.vin, err)
                         self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 return True
-            else:
-                if trip.destination_position_latitude is None and trip.destination_position_longitude is None:
-                    try:
-                        trip.destination_position_latitude = self.carconnectivity_vehicle.position.latitude.value
-                        trip.destination_position_longitude = self.carconnectivity_vehicle.position.longitude.value
-                        session.commit()
-                    except DatabaseError as err:
-                        session.rollback()
-                        LOG.error('DatabaseError while updating position for trip of vehicle %s in database: %s', self.vehicle.vin, err)
-                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-                if trip.destination_location is None and self.carconnectivity_vehicle.position.location.enabled:
-                    location: Location = Location.from_carconnectivity_location(location=self.carconnectivity_vehicle.position.location)
-                    try:
-                        location = session.merge(location)
-                        trip.destination_location = location
-                        session.commit()
-                    except DatabaseError as err:
-                        session.rollback()
-                        LOG.error('DatabaseError while merging location for trip of vehicle %s in database: %s', self.vehicle.vin, err)
-                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-                return True
+            if trip.destination_position_latitude is None and trip.destination_position_longitude is None:
+                try:
+                    trip.destination_position_latitude = self.carconnectivity_vehicle.position.latitude.value
+                    trip.destination_position_longitude = self.carconnectivity_vehicle.position.longitude.value
+                    session.commit()
+                except DatabaseError as err:
+                    session.rollback()
+                    LOG.error('DatabaseError while updating position for trip of vehicle %s in database: %s', self.vehicle.vin, err)
+                    self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+            if trip.destination_location is None and self.carconnectivity_vehicle.position.location.enabled:
+                location: Location = Location.from_carconnectivity_location(location=self.carconnectivity_vehicle.position.location)
+                try:
+                    location = session.merge(location)
+                    trip.destination_location = location
+                    session.commit()
+                except DatabaseError as err:
+                    session.rollback()
+                    LOG.error('DatabaseError while merging location for trip of vehicle %s in database: %s', self.vehicle.vin, err)
+                    self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+            return True
         return False

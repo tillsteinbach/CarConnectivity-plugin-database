@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Constraint
 
 
+# pylint: disable=duplicate-code
 class DriveRangeEstimatedFull(Base):  # pylint: disable=too-few-public-methods
     """
     Represents a drive range estimated full record in the database.

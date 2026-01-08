@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Constraint
 
 
+# pylint: disable=duplicate-code
 class DriveConsumption(Base):  # pylint: disable=too-few-public-methods
     """
     SQLAlchemy model representing consumption data for a specific drive .

@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.model.vehicle")
 
 
+# pylint: disable-next=too-few-public-methods
 class Vehicle(Base):
     """
     SQLAlchemy model representing a vehicle in the database.
@@ -73,6 +74,7 @@ class Vehicle(Base):
     def __init__(self, vin) -> None:
         self.vin = vin
 
+    # pylint: disable-next=too-many-branches,too-many-statements
     def connect(self, database_plugin: Plugin, session_factory: scoped_session[Session], carconnectivity_vehicle: GenericVehicle) -> None:
         """
         Connect a CarConnectivity vehicle instance to this database vehicle model and set up observers.

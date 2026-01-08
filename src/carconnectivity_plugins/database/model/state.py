@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Constraint
 
 
+# pylint: disable=duplicate-code
 class State(Base):  # pylint: disable=too-few-public-methods
     """
     Represents a vehicle state record in the database.

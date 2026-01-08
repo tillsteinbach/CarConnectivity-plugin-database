@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.model.drive")
 
 
+# pylint: disable-next=too-few-public-methods
 class Drive(Base):
     """
     Database model representing a vehicle drive/trip.

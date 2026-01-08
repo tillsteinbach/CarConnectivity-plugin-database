@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.climatization_agent")
 
 
+# pylint: disable=duplicate-code
+# pylint: disable=duplicate-code
+# pylint: disable-next=too-few-public-methods
 class ClimatizationAgent(BaseAgent):
     """
     Agent responsible for monitoring and persisting climatization state changes to the database.

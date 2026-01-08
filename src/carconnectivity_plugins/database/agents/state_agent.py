@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.state_agent")
 
 
+#  pylint: disable=duplicate-code
 # pylint: disable-next=too-many-instance-attributes, too-few-public-methods
 class StateAgent(BaseAgent):
     """

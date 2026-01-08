@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Constraint
 
 
+# pylint: disable=duplicate-code
 class ConnectionState(Base):  # pylint: disable=too-few-public-methods
     """
     Represents a vehicle connection state record in the database.

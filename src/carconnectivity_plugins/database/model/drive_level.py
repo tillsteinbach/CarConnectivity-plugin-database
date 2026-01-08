@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Constraint
 
 
+# pylint: disable=duplicate-code
 class DriveLevel(Base):  # pylint: disable=too-few-public-methods
     """
     SQLAlchemy model representing energy levels for a drive.

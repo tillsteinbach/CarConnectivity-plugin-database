@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Constraint
 
 
+# pylint: disable=duplicate-code
 class ClimatizationState(Base):  # pylint: disable=too-few-public-methods
     """
     SQLAlchemy model representing a vehicle's climatization state over a time period.

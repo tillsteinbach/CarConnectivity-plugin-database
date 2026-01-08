@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Constraint
 
 
+# pylint: disable=duplicate-code
 class DriveRange(Base):  # pylint: disable=too-few-public-methods
     """
     Represents a drive range record in the database.
@@ -45,7 +46,7 @@ class DriveRange(Base):  # pylint: disable=too-few-public-methods
     last_date: Mapped[datetime] = mapped_column(UtcDateTime)
     range: Mapped[Optional[float]]
 
-    # pylint: disable-next=too-many-arguments, too-many-positional-arguments
+    # pylint: disable-next=too-many-arguments, too-many-positional-arguments, redefined-builtin
     def __init__(self, drive_id: Mapped[int], first_date: datetime, last_date: datetime, range: Optional[float]) -> None:
         self.drive_id = drive_id
         self.first_date = first_date

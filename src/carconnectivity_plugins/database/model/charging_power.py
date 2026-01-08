@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Constraint
 
 
+# pylint: disable=duplicate-code
 class ChargingPower(Base):  # pylint: disable=too-few-public-methods
     """
     SQLAlchemy model representing a vehicle's charging power information over a time period.
