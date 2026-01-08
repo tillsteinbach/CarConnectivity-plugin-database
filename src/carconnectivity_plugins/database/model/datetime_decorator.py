@@ -2,8 +2,16 @@
 This decorator ensures that datetime values are stored in UTC and retrieved in UTC,
 while also converting naive datetime objects to the local timezone before storing.
 It is designed to work with SQLAlchemy's DateTime type."""
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 from datetime import datetime, timezone
 import sqlalchemy
+
+if TYPE_CHECKING:
+    from typing import Optional
+    from datetime import tzinfo
+    from sqlalchemy.engine.interfaces import Dialect
 
 
 # pylint: disable=too-many-ancestors
@@ -12,21 +20,25 @@ class DatetimeDecorator(sqlalchemy.types.TypeDecorator):
     impl = sqlalchemy.types.DateTime
     cache_ok = True
 
-    def process_literal_param(self, value, dialect):
+    def process_literal_param(self, value: Optional[datetime], dialect: Dialect) -> str:
         """Process literal parameter for SQLAlchemy."""
+        del dialect  # Unused parameter
         if value is None:
-            return None
+            raise ValueError("Datetime value cannot be None as a literal parameter")
         return f"'{value.isoformat()}'"
 
     @property
-    def python_type(self):
+    def python_type(self) -> type[datetime]:
         """Return the Python type handled by this decorator."""
         return datetime
 
-    LOCAL_TIMEZONE = datetime.utcnow().astimezone().tzinfo
+    LOCAL_TIMEZONE: Optional[tzinfo] = datetime.now(timezone.utc).astimezone().tzinfo
 
-    def process_bind_param(self, value, dialect):
+    def process_bind_param(self, value: Optional[datetime], dialect: Dialect) -> None | datetime:
+        del dialect  # Unused parameter
         if value is None:
+            return value
+        if not isinstance(value, datetime):
             return value
 
         if value.tzinfo is None:
@@ -34,8 +46,11 @@ class DatetimeDecorator(sqlalchemy.types.TypeDecorator):
 
         return value.astimezone(timezone.utc)
 
-    def process_result_value(self, value, dialect):
+    def process_result_value(self, value: Optional[datetime], dialect: Dialect) -> Optional[datetime]:
+        del dialect  # Unused parameter
         if value is None:
+            return value
+        if not isinstance(value, datetime):
             return value
 
         if value.tzinfo is None:

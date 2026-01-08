@@ -1,7 +1,8 @@
+"""
+Agent for monitoring and persisting drive state changes to the database.
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING
-
-import threading
 
 import logging
 
@@ -9,6 +10,7 @@ from sqlalchemy.exc import DatabaseError
 
 from carconnectivity.observable import Observable
 from carconnectivity.drive import ElectricDrive, CombustionDrive
+from carconnectivity.utils.timeout_lock import TimeoutLock
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.model.drive_level import DriveLevel
@@ -32,12 +34,51 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.drive_state_agent")
 
 
+# pylint: disable-next=too-many-instance-attributes, too-few-public-methods
 class DriveStateAgent(BaseAgent):
+    """
+    Agent responsible for monitoring and persisting drive state changes to the database.
+    This agent observes various attributes of a vehicle's drive system (electric or combustion)
+    and records changes to the database, including:
+    - Drive type
+    - Battery/fuel levels
+    - Range estimates (current and estimated full)
+    - WLTP range
+    - Battery/fuel capacities
+    - Energy/fuel consumption
+    The agent uses locks to ensure thread-safe database operations and maintains references
+    to the last recorded values to avoid duplicate entries. It automatically updates existing
+    records when values remain unchanged but timestamps advance.
+    Attributes:
+        database_plugin (Plugin): Reference to the database plugin for health status updates.
+        session_factory (scoped_session[Session]): SQLAlchemy session factory for database operations.
+        drive (Drive): Database model representing the drive being monitored.
+        drive_lock (TimeoutLock): Lock for thread-safe drive access.
+        carconnectivity_drive (GenericDrive): CarConnectivity drive object being observed.
+        type_lock (TimeoutLock): Lock for drive type updates.
+        range_wltp_lock (TimeoutLock): Lock for WLTP range updates.
+        total_capacity_lock (TimeoutLock): Lock for total capacity updates (electric drives).
+        available_capacity_lock (TimeoutLock): Lock for available capacity updates.
+        fuel_available_capacity_lock (TimeoutLock): Lock for fuel capacity updates (combustion drives).
+        last_electric_consumption (Optional[DriveConsumption]): Most recent electric consumption record.
+        last_electric_consumption_lock (TimeoutLock): Lock for electric consumption updates.
+        last_fuel_consumption (Optional[DriveConsumption]): Most recent fuel consumption record.
+        last_fuel_consumption_lock (TimeoutLock): Lock for fuel consumption updates.
+        last_level (Optional[DriveLevel]): Most recent level record.
+        last_level_lock (TimeoutLock): Lock for level updates.
+        last_range (Optional[DriveRange]): Most recent range record.
+        last_range_lock (TimeoutLock): Lock for range updates.
+        last_range_estimated_full (Optional[DriveRangeEstimatedFull]): Most recent estimated full range record.
+        last_range_estimated_full_lock (TimeoutLock): Lock for estimated full range updates.
+    Raises:
+        ValueError: If drive or carconnectivity_drive is None during initialization.
+    """
+    # pylint: disable=too-many-statements
     def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], drive: Drive, carconnectivity_drive: GenericDrive) -> None:
         self.database_plugin: Plugin = database_plugin
         self.session_factory: scoped_session[Session] = session_factory
         self.drive: Drive = drive
-        self.drive_lock: threading.RLock = threading.RLock()
+        self.drive_lock: TimeoutLock = TimeoutLock()
         self.carconnectivity_drive: GenericDrive = carconnectivity_drive
         with self.drive_lock:
             with self.session_factory() as session:
@@ -48,29 +89,29 @@ class DriveStateAgent(BaseAgent):
                     raise ValueError("Drive or its carconnectivity_drive attribute is None")
 
                 self.carconnectivity_drive.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
-                self.type_lock: threading.RLock = threading.RLock()
+                self.type_lock: TimeoutLock = TimeoutLock()
                 self.__on_type_change(self.carconnectivity_drive.type, Observable.ObserverEvent.VALUE_CHANGED)
 
                 self.carconnectivity_drive.range_wltp.add_observer(self.__on_range_wltp_change, Observable.ObserverEvent.VALUE_CHANGED,
                                                                    on_transaction_end=True)
-                self.range_wltp_lock: threading.RLock = threading.RLock()
+                self.range_wltp_lock: TimeoutLock = TimeoutLock()
                 self.__on_range_wltp_change(self.carconnectivity_drive.range_wltp, Observable.ObserverEvent.VALUE_CHANGED)
 
                 if isinstance(self.carconnectivity_drive, ElectricDrive):
                     self.carconnectivity_drive.battery.total_capacity.add_observer(self.__on_electric_total_capacity_change,
                                                                                    Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
-                    self.total_capacity_lock: threading.RLock = threading.RLock()
+                    self.total_capacity_lock: TimeoutLock = TimeoutLock()
                     self.__on_electric_total_capacity_change(self.carconnectivity_drive.battery.total_capacity, Observable.ObserverEvent.VALUE_CHANGED)
 
                     self.carconnectivity_drive.battery.available_capacity.add_observer(self.__on_electric_available_capacity_change,
                                                                                        Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
-                    self.available_capacity_lock: threading.RLock = threading.RLock()
+                    self.available_capacity_lock: TimeoutLock = TimeoutLock()
                     self.__on_electric_available_capacity_change(self.carconnectivity_drive.battery.available_capacity,
                                                                  Observable.ObserverEvent.VALUE_CHANGED)
 
                     self.last_electric_consumption: Optional[DriveConsumption] = session.query(DriveConsumption) \
                         .filter(DriveConsumption.drive_id == self.drive.id).order_by(DriveConsumption.first_date.desc()).first()
-                    self.last_electric_consumption_lock: threading.RLock = threading.RLock()
+                    self.last_electric_consumption_lock: TimeoutLock = TimeoutLock()
                     self.carconnectivity_drive.consumption.add_observer(self.__on_electric_consumption_change,
                                                                         Observable.ObserverEvent.VALUE_CHANGED)
                     self.__on_electric_consumption_change(self.carconnectivity_drive.consumption, Observable.ObserverEvent.UPDATED)
@@ -78,25 +119,25 @@ class DriveStateAgent(BaseAgent):
                 elif isinstance(self.carconnectivity_drive, CombustionDrive):
                     self.carconnectivity_drive.fuel_tank.available_capacity.add_observer(self.__on_fuel_available_capacity_change,
                                                                                          Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
-                    self.fuel_available_capacity_lock: threading.RLock = threading.RLock()
+                    self.fuel_available_capacity_lock: TimeoutLock = TimeoutLock()
                     self.__on_fuel_available_capacity_change(self.carconnectivity_drive.fuel_tank.available_capacity, Observable.ObserverEvent.VALUE_CHANGED)
 
                     self.last_fuel_consumption: Optional[DriveConsumption] = session.query(DriveConsumption) \
                         .filter(DriveConsumption.drive_id == self.drive.id).order_by(DriveConsumption.first_date.desc()).first()
-                    self.last_fuel_consumption_lock: threading.RLock = threading.RLock()
+                    self.last_fuel_consumption_lock: TimeoutLock = TimeoutLock()
                     self.carconnectivity_drive.consumption.add_observer(self.__on_fuel_consumption_change,
                                                                         Observable.ObserverEvent.VALUE_CHANGED)
                     self.__on_fuel_consumption_change(self.carconnectivity_drive.consumption, Observable.ObserverEvent.UPDATED)
 
                 self.last_level: Optional[DriveLevel] = session.query(DriveLevel).filter(DriveLevel.drive_id == self.drive.id) \
                     .order_by(DriveLevel.first_date.desc()).first()
-                self.last_level_lock: threading.RLock = threading.RLock()
+                self.last_level_lock: TimeoutLock = TimeoutLock()
                 self.last_range: Optional[DriveRange] = session.query(DriveRange).filter(DriveRange.drive_id == self.drive.id) \
                     .order_by(DriveRange.first_date.desc()).first()
-                self.last_range_lock: threading.RLock = threading.RLock()
+                self.last_range_lock: TimeoutLock = TimeoutLock()
                 self.last_range_estimated_full: Optional[DriveRangeEstimatedFull] = session.query(DriveRangeEstimatedFull) \
                     .filter(DriveRangeEstimatedFull.drive_id == self.drive.id).order_by(DriveRangeEstimatedFull.first_date.desc()).first()
-                self.last_range_estimated_full_lock: threading.RLock = threading.RLock()
+                self.last_range_estimated_full_lock: TimeoutLock = TimeoutLock()
 
                 if self.carconnectivity_drive is not None:
                     self.carconnectivity_drive.level.add_observer(self.__on_level_change, Observable.ObserverEvent.UPDATED)

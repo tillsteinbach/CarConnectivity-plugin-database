@@ -1,7 +1,10 @@
+
+"""
+Handles charging-related data for electric vehicles, tracking charging sessions,
+charging states, rates, and power, and recording them in the database.
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING
-
-import threading
 
 import logging
 from datetime import timedelta, datetime, timezone
@@ -12,6 +15,7 @@ from carconnectivity.observable import Observable
 from carconnectivity.vehicle import ElectricVehicle
 from carconnectivity.charging import Charging
 from carconnectivity.charging_connector import ChargingConnector
+from carconnectivity.utils.timeout_lock import TimeoutLock
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 
@@ -36,7 +40,52 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.charging_agent")
 
 
+# pylint: disable-next=too-many-instance-attributes, too-few-public-methods
 class ChargingAgent(BaseAgent):
+    """
+    Agent responsible for tracking and recording vehicle charging sessions and related data.
+    This agent monitors various charging-related attributes of an electric vehicle and records
+    changes to a database. It tracks charging sessions, charging states, charging rates, charging
+    power, connector states, and battery levels.
+    The agent creates and manages charging sessions based on:
+    - Charging state changes (CHARGING, CONSERVATION)
+    - Connector connection/disconnection events
+    - Connector lock/unlock events
+    - Battery level changes
+    - Charging type changes (AC/DC)
+    Each charging session records:
+    - Start and end timestamps
+    - Battery levels at start and end
+    - Odometer reading
+    - Geographic position and location
+    - Charging station information
+    - Charging type (AC/DC)
+    - Plug connection, disconnection, lock, and unlock timestamps
+    The agent handles session continuity logic, allowing sessions to resume after brief
+    interruptions (e.g., conservation mode) while creating new sessions for distinct
+    charging events.
+    Attributes:
+        database_plugin (Plugin): Reference to the database plugin for health status updates.
+        session_factory (scoped_session[Session]): SQLAlchemy session factory for database operations.
+        vehicle (Vehicle): Database model of the vehicle being monitored.
+        carconnectivity_vehicle (ElectricVehicle): CarConnectivity vehicle object with live data.
+        last_charging_session (Optional[ChargingSession]): Most recent charging session from database.
+        last_charging_session_lock (TimeoutLock): Lock for thread-safe charging session updates.
+        carconnectivity_last_charging_state (Optional[Charging.ChargingState]): Last observed charging state.
+        carconnectivity_last_connector_state (Optional[ChargingConnector.ChargingConnectorConnectionState]):
+            Last observed connector connection state.
+        carconnectivity_last_connector_lock_state (Optional[ChargingConnector.ChargingConnectorLockState]):
+            Last observed connector lock state.
+        last_charging_state (Optional[ChargingState]): Most recent charging state record from database.
+        last_charging_state_lock (TimeoutLock): Lock for thread-safe charging state updates.
+        last_charging_rate (Optional[ChargingRate]): Most recent charging rate record from database.
+        last_charging_rate_lock (TimeoutLock): Lock for thread-safe charging rate updates.
+        last_charging_power (Optional[ChargingPower]): Most recent charging power record from database.
+        last_charging_power_lock (TimeoutLock): Lock for thread-safe charging power updates.
+    Raises:
+        ValueError: If vehicle or carconnectivity_vehicle is None, or if carconnectivity_vehicle
+            is not an ElectricVehicle instance.
+    """
 
     def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle,
                  carconnectivity_vehicle: ElectricVehicle) -> None:
@@ -55,7 +104,7 @@ class ChargingAgent(BaseAgent):
                           ChargingSession.plug_locked_date.desc().nulls_first(),
                           ChargingSession.plug_connected_date.desc().nulls_first()).first()
 
-            self.last_charging_session_lock: threading.RLock = threading.RLock()
+            self.last_charging_session_lock: TimeoutLock = TimeoutLock()
             self.carconnectivity_last_charging_state: Optional[Charging.ChargingState] = self.carconnectivity_vehicle.charging.state.value
             self.carconnectivity_last_connector_state: Optional[ChargingConnector.ChargingConnectorConnectionState] = self.carconnectivity_vehicle.charging\
                 .connector.connection_state.value
@@ -75,15 +124,15 @@ class ChargingAgent(BaseAgent):
 
             self.last_charging_state: Optional[ChargingState] = session.query(ChargingState).filter(ChargingState.vehicle == vehicle)\
                 .order_by(ChargingState.first_date.desc()).first()
-            self.last_charging_state_lock: threading.RLock = threading.RLock()
+            self.last_charging_state_lock: TimeoutLock = TimeoutLock()
 
             self.last_charging_rate: Optional[ChargingRate] = session.query(ChargingRate).filter(ChargingRate.vehicle == vehicle)\
                 .order_by(ChargingRate.first_date.desc()).first()
-            self.last_charging_rate_lock: threading.RLock = threading.RLock()
+            self.last_charging_rate_lock: TimeoutLock = TimeoutLock()
 
             self.last_charging_power: Optional[ChargingPower] = session.query(ChargingPower).filter(ChargingPower.vehicle == vehicle)\
                 .order_by(ChargingPower.first_date.desc()).first()
-            self.last_charging_power_lock: threading.RLock = threading.RLock()
+            self.last_charging_power_lock: TimeoutLock = TimeoutLock()
 
             self.carconnectivity_vehicle.charging.connector.connection_state.add_observer(self.__on_connector_state_change, Observable.ObserverEvent.UPDATED)
             if self.carconnectivity_vehicle.charging.connector.connection_state.enabled:
@@ -112,6 +161,7 @@ class ChargingAgent(BaseAgent):
                 electric_drive.level.add_observer(self._on_battery_level_change, Observable.ObserverEvent.VALUE_CHANGED)
         self.session_factory.remove()
 
+    # pylint: disable=too-many-branches, too-many-statements
     def __on_charging_state_change(self, element: EnumAttribute[Charging.ChargingState], flags: Observable.ObserverEvent) -> None:
         del flags
         if self.carconnectivity_vehicle is None:
@@ -316,6 +366,7 @@ class ChargingAgent(BaseAgent):
                                 self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()
 
+    # pylint: disable=too-many-branches, too-many-statements
     def __on_connector_state_change(self, element: EnumAttribute[ChargingConnector.ChargingConnectorConnectionState], flags: Observable.ObserverEvent) -> None:
         del flags
         if self.carconnectivity_vehicle is None:

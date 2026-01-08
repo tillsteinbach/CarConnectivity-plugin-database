@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import threading
+
 import logging
 
 from sqlalchemy import Engine, create_engine, text, inspect
@@ -14,6 +15,7 @@ from carconnectivity.errors import ConfigurationError
 from carconnectivity.util import config_remove_credentials
 from carconnectivity.observable import Observable
 from carconnectivity.vehicle import GenericVehicle
+from carconnectivity.utils.timeout_lock import TimeoutLock
 
 from carconnectivity_plugins.base.plugin import BasePlugin
 
@@ -59,7 +61,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
         self.scoped_session_factory: scoped_session[Session] = scoped_session(session_factory)
 
         self.vehicles: Dict[str, Vehicle] = {}
-        self.vehicles_lock: threading.RLock = threading.RLock()
+        self.vehicles_lock: TimeoutLock = TimeoutLock()
 
     def startup(self) -> None:
         LOG.info("Starting database plugin")

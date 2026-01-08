@@ -52,7 +52,9 @@ class ChargingStation(Base):  # pylint: disable=too-few-public-methods,too-many-
     @classmethod
     def from_carconnectivity_charging_station(cls, charging_station: CarConnectivityChargingStation) -> ChargingStation:
         """Create a ChargingStation instance from a carconnectivity ChargingStation object."""
-        cs = cls(uid=charging_station.uid.value)
+        if charging_station.uid.value is None:
+            raise ValueError("ChargingStation uid cannot be None")
+        cs: ChargingStation = ChargingStation(uid=charging_station.uid.value)
         cs.source = charging_station.source.value
         cs.name = charging_station.name.value
         cs.latitude = charging_station.latitude.value

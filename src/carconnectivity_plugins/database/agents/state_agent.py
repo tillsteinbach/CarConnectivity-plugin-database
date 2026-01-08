@@ -1,13 +1,15 @@
+"""
+Module for monitoring and persisting vehicle state changes to the database.
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING
-
-import threading
 
 import logging
 
 from sqlalchemy.exc import DatabaseError
 
 from carconnectivity.observable import Observable
+from carconnectivity.utils.timeout_lock import TimeoutLock
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.model.state import State
@@ -30,7 +32,20 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.state_agent")
 
 
+# pylint: disable-next=too-many-instance-attributes, too-few-public-methods
 class StateAgent(BaseAgent):
+    """
+        Agent responsible for monitoring and persisting vehicle state changes to the database.
+
+        This agent observes changes to:
+        - Vehicle state (e.g., parked, driving)
+        - Connection state (e.g., online, offline)
+        - Outside temperature
+
+        When changes are detected, the agent either creates new database records or updates
+        existing ones with the latest timestamp. It maintains references to the last known
+        values to optimize database operations and avoid unnecessary writes.
+        """
     def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle, carconnectivity_vehicle: GenericVehicle) -> None:
         if vehicle is None or carconnectivity_vehicle is None:
             raise ValueError("Vehicle or its carconnectivity_vehicle attribute is None")
@@ -41,15 +56,15 @@ class StateAgent(BaseAgent):
 
         with self.session_factory() as session:
             self.last_state: Optional[State] = session.query(State).filter(State.vehicle == vehicle).order_by(State.first_date.desc()).first()
-            self.last_state_lock: threading.RLock = threading.RLock()
+            self.last_state_lock: TimeoutLock = TimeoutLock()
 
             self.last_connection_state: Optional[ConnectionState] = session.query(ConnectionState).filter(ConnectionState.vehicle == vehicle) \
                 .order_by(ConnectionState.first_date.desc()).first()
-            self.last_connection_state_lock: threading.RLock = threading.RLock()
+            self.last_connection_state_lock: TimeoutLock = TimeoutLock()
 
             self.last_outside_temperature: Optional[OutsideTemperature] = session.query(OutsideTemperature).filter(OutsideTemperature.vehicle == vehicle) \
                 .order_by(OutsideTemperature.first_date.desc()).first()
-            self.last_outside_temperature_lock: threading.RLock = threading.RLock()
+            self.last_outside_temperature_lock: TimeoutLock = TimeoutLock()
 
             self.carconnectivity_vehicle.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
             self.__on_state_change(self.carconnectivity_vehicle.state, Observable.ObserverEvent.UPDATED)

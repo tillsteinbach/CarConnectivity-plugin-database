@@ -1,13 +1,15 @@
+    """
+    Agent for monitoring and persisting climatization state changes to the database.
+    """
 from __future__ import annotations
 from typing import TYPE_CHECKING
-
-import threading
 
 import logging
 
 from sqlalchemy.exc import DatabaseError
 
 from carconnectivity.observable import Observable
+from carconnectivity.utils.timeout_lock import TimeoutLock
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.model.climatization_state import ClimatizationState
@@ -30,6 +32,27 @@ LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents
 
 
 class ClimatizationAgent(BaseAgent):
+    """
+    Agent responsible for monitoring and persisting climatization state changes to the database.
+    This agent observes changes to a vehicle's climatization state and records these changes
+    in the database. It maintains a record of state transitions, tracking both the first and
+    last occurrence of each state.
+    Attributes:
+        database_plugin (Plugin): Reference to the database plugin for health monitoring.
+        session_factory (scoped_session[Session]): SQLAlchemy session factory for database operations.
+        vehicle (Vehicle): The database vehicle entity being monitored.
+        carconnectivity_vehicle (GenericVehicle): The CarConnectivity vehicle object providing real-time data.
+        last_state (Optional[ClimatizationState]): The most recent climatization state record from the database.
+        last_state_lock (TimeoutLock): Thread-safe lock for managing concurrent access to state updates.
+    Raises:
+        ValueError: If either vehicle or carconnectivity_vehicle is None during initialization.
+    Notes:
+        - Automatically registers as an observer to the vehicle's climatization state attribute.
+        - Creates new database records when climatization state changes.
+        - Updates existing records' last_date when the same state persists.
+        - Sets the database plugin health status to False if database errors occur.
+    """
+
     def __init__(self, database_plugin: Plugin, session_factory: scoped_session[Session], vehicle: Vehicle, carconnectivity_vehicle: GenericVehicle) -> None:
         if vehicle is None or carconnectivity_vehicle is None:
             raise ValueError("Vehicle or its carconnectivity_vehicle attribute is None")
@@ -41,7 +64,7 @@ class ClimatizationAgent(BaseAgent):
         with self.session_factory() as session:
             self.last_state: Optional[ClimatizationState] = session.query(ClimatizationState).filter(ClimatizationState.vehicle == vehicle)\
                 .order_by(ClimatizationState.first_date.desc()).first()
-            self.last_state_lock: threading.RLock = threading.RLock()
+            self.last_state_lock: TimeoutLock = TimeoutLock()
 
             self.carconnectivity_vehicle.climatization.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
             self.__on_state_change(self.carconnectivity_vehicle.climatization.state, Observable.ObserverEvent.UPDATED)

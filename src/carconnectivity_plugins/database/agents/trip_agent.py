@@ -1,7 +1,8 @@
+"""
+Agent for tracking vehicle trips and persisting trip data to the database.
+"""
 from __future__ import annotations
 from typing import TYPE_CHECKING
-
-import threading
 
 import logging
 from datetime import datetime, timezone, timedelta
@@ -10,6 +11,7 @@ from sqlalchemy.exc import DatabaseError
 
 from carconnectivity.observable import Observable
 from carconnectivity.vehicle import GenericVehicle
+from carconnectivity.utils.timeout_lock import TimeoutLock
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.model.trip import Trip
@@ -28,6 +30,7 @@ if TYPE_CHECKING:
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database.agents.trip_agent")
 
 
+# pylint: disable-next=too-many-instance-attributes, too-few-public-methods
 class TripAgent(BaseAgent):
     """
     Agent responsible for tracking vehicle trips based on vehicle state changes.
@@ -65,7 +68,7 @@ class TripAgent(BaseAgent):
 
         with self.session_factory() as session:
             self.trip: Optional[Trip] = session.query(Trip).filter(Trip.vehicle == vehicle).order_by(Trip.start_date.desc()).first()
-            self.trip_lock: threading.RLock = threading.RLock()
+            self.trip_lock: TimeoutLock = TimeoutLock()
             if self.trip is not None:
                 if self.trip.destination_date is None:
                     LOG.info("Last trip for vehicle %s is still open during startup, closing it now", vehicle.vin)
