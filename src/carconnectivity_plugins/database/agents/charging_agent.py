@@ -1,4 +1,3 @@
-
 """
 Handles charging-related data for electric vehicles, tracking charging sessions,
 charging states, rates, and power, and recording them in the database.
