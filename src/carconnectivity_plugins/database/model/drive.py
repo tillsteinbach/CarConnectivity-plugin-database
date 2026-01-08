@@ -7,10 +7,11 @@ import logging
 from sqlalchemy import ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from carconnectivity.drive import GenericDrive
+from carconnectivity.drive import GenericDrive, CombustionDrive
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.agents.drive_state_agent import DriveStateAgent
+from carconnectivity_plugins.database.agents.refuel_agent import RefuelAgent
 from carconnectivity_plugins.database.model.base import Base
 
 if TYPE_CHECKING:
@@ -85,3 +86,7 @@ class Drive(Base):
         LOG.debug("Adding DriveStateAgent to drive %s of vehicle %s", self.drive_id, self.vin)
         drive_state_agent: DriveStateAgent = DriveStateAgent(database_plugin, session_factory, self, carconnectivity_drive)  # type: ignore[assignment]
         self.agents.append(drive_state_agent)
+        if isinstance(carconnectivity_drive, CombustionDrive):
+            LOG.debug("Adding RefuelAgent to combustion drive %s of vehicle %s", self.drive_id, self.vin)
+            refuel_agent: RefuelAgent = RefuelAgent(database_plugin, session_factory, carconnectivity_drive)  # type: ignore[assignment]
+            self.agents.append(refuel_agent)
