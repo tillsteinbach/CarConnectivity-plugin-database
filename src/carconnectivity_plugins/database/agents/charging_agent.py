@@ -24,13 +24,14 @@ from carconnectivity_plugins.database.model.charging_power import ChargingPower
 from carconnectivity_plugins.database.model.charging_session import ChargingSession
 from carconnectivity_plugins.database.model.location import Location
 from carconnectivity_plugins.database.model.charging_station import ChargingStation
+from carconnectivity_plugins.database.model.battery_temperature import BatteryTemperature
 
 if TYPE_CHECKING:
     from typing import Optional
     from sqlalchemy.orm import scoped_session
     from sqlalchemy.orm.session import Session
 
-    from carconnectivity.attributes import EnumAttribute, SpeedAttribute, PowerAttribute, FloatAttribute
+    from carconnectivity.attributes import EnumAttribute, SpeedAttribute, PowerAttribute, FloatAttribute, TemperatureAttribute
 
     from carconnectivity_plugins.database.plugin import Plugin
     from carconnectivity_plugins.database.model.vehicle import Vehicle
@@ -134,6 +135,10 @@ class ChargingAgent(BaseAgent):
                 .order_by(ChargingPower.first_date.desc()).first()
             self.last_charging_power_lock: TimeoutLock = TimeoutLock()
 
+            self.last_battery_temperature: Optional[BatteryTemperature] = session.query(BatteryTemperature).filter(BatteryTemperature.vehicle == vehicle) \
+                .order_by(BatteryTemperature.first_date.desc()).first()
+            self.last_battery_temperature_lock: TimeoutLock = TimeoutLock()
+
             self.carconnectivity_vehicle.charging.connector.connection_state.add_observer(self.__on_connector_state_change, Observable.ObserverEvent.UPDATED)
             if self.carconnectivity_vehicle.charging.connector.connection_state.enabled:
                 self.__on_connector_state_change(self.carconnectivity_vehicle.charging.connector.connection_state, Observable.ObserverEvent.UPDATED)
@@ -159,6 +164,10 @@ class ChargingAgent(BaseAgent):
             electric_drive: Optional[ElectricDrive] = self.carconnectivity_vehicle.get_electric_drive()
             if electric_drive is not None:
                 electric_drive.level.add_observer(self._on_battery_level_change, Observable.ObserverEvent.VALUE_CHANGED)
+
+                electric_drive.battery.temperature.add_observer(self.__on_battery_temperature_change, Observable.ObserverEvent.VALUE_CHANGED)
+                if electric_drive.battery.temperature.enabled:
+                    self.__on_battery_temperature_change(electric_drive.battery.temperature, Observable.ObserverEvent.UPDATED)
         self.session_factory.remove()
 
     # pylint: disable=too-many-branches, too-many-statements
@@ -662,3 +671,38 @@ class ChargingAgent(BaseAgent):
                                               self.vehicle.vin, err)
                                     self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
             self.session_factory.remove()
+
+    def __on_battery_temperature_change(self, element: TemperatureAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        if element.enabled:
+            with self.last_battery_temperature_lock:
+                with self.session_factory() as session:
+                    if self.last_battery_temperature is not None:
+                        self.last_battery_temperature = session.merge(self.last_battery_temperature)
+                        session.refresh(self.last_battery_temperature)
+                    if element.last_updated is not None \
+                            and (self.last_battery_temperature is None or (self.last_battery_temperature.battery_temperature != element.value
+                                                                           and element.last_updated > self.last_battery_temperature.last_date)):
+                        new_battery_temperature: BatteryTemperature = BatteryTemperature(vin=self.vehicle.vin, first_date=element.last_updated,
+                                                                                         last_date=element.last_updated, battery_temperature=element.value)
+                        try:
+                            session.add(new_battery_temperature)
+                            session.commit()
+                            LOG.debug('Added new battery temperature %.2f for vehicle %s to database', element.value, self.vehicle.vin)
+                            self.last_battery_temperature = new_battery_temperature
+                        except DatabaseError as err:
+                            session.rollback()
+                            LOG.error('DatabaseError while adding battery temperature for vehicle %s to database: %s', self.vehicle.vin, err)
+                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+                    elif self.last_battery_temperature is not None and self.last_battery_temperature.battery_temperature == element.value \
+                            and element.last_updated is not None:
+                        if self.last_battery_temperature.last_date is None or element.last_updated > self.last_battery_temperature.last_date:
+                            try:
+                                self.last_battery_temperature.last_date = element.last_updated
+                                session.commit()
+                                LOG.debug('Updated battery temperature %.2f for vehicle %s in database', element.value, self.vehicle.vin)
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while updating battery temperature for vehicle %s in database: %s', self.vehicle.vin, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+                self.session_factory.remove()
