@@ -199,7 +199,8 @@ class ChargingAgent(BaseAgent):
                                 else:
                                     LOG.debug("Starting charging in existing charging session for vehicle %s", self.vehicle.vin)
                                     try:
-                                        self.last_charging_session.session_start_date = element.last_changed
+                                        if self.last_charging_session.session_start_date is None:
+                                            self.last_charging_session.session_start_date = element.last_changed
                                         self._update_session_odometer(session, self.last_charging_session)
                                         self._update_session_position(session, self.last_charging_session)
                                         self._update_session_charging_type(session, self.last_charging_session)
@@ -214,7 +215,6 @@ class ChargingAgent(BaseAgent):
                                 if electric_drive is not None and electric_drive.level.enabled and electric_drive.level.value is not None:
                                     if self.last_charging_session.start_level is None:
                                         try:
-                                            
                                             self.last_charging_session.start_level = electric_drive.level.value
                                             session.commit()
                                         except DatabaseError as err:
