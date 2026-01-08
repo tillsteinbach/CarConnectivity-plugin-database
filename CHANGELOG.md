@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 - No unreleased changes so far
 
+## [0.2] - 2026-01-08
+### Added
+- Recording of battery temperatures
+- Recording of refueling of combustion vehicles
+
+### Fixed
+- Fixes bug where charging session start level was overwritten
+- Fixes bug where charging session start date was overwritten
+
 ## [0.1] - 2026-01-04
 Initial release, let's go and give this to the public to try out...
 
