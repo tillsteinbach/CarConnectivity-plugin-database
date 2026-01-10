@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING
 import logging
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, IntegrityError
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from carconnectivity.observable import Observable
 from carconnectivity.vehicle import GenericVehicle
@@ -95,8 +96,16 @@ class TripAgent(BaseAgent):
                     with self.session_factory() as session:
                         with self.trip_lock:
                             if self.trip is not None:
-                                self.trip = session.merge(self.trip)
-                                session.refresh(self.trip)
+                                try:
+                                    self.trip = session.merge(self.trip)
+                                    session.refresh(self.trip)
+                                except ObjectDeletedError:
+                                    self.trip = session.query(Trip).filter(Trip.vehicle == self.vehicle) \
+                                        .order_by(Trip.start_date.desc()).first()
+                                    if self.trip is not None:
+                                        LOG.info('Last trip for vehicle %s was deleted from database, reloaded last trip', self.vehicle.vin)
+                                    else:
+                                        LOG.info('Last trip for vehicle %s was deleted from database, no more trips found', self.vehicle.vin)
                             if self.last_carconnectivity_state not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
                                     and element.value in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
                                 if self.trip is not None:
@@ -122,6 +131,9 @@ class TripAgent(BaseAgent):
                                     session.commit()
                                     LOG.debug('Added new trip for vehicle %s to database', self.vehicle.vin)
                                     self.trip = new_trip
+                                except IntegrityError as err:
+                                    session.rollback()
+                                    LOG.error('IntegrityError while adding state for vehicle %s to database: %s', self.vehicle.vin, err)
                                 except DatabaseError as err:
                                     session.rollback()
                                     LOG.error('DatabaseError while adding trip for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -165,9 +177,17 @@ class TripAgent(BaseAgent):
         if self.trip is not None:
             with self.session_factory() as session:
                 with self.trip_lock:
-                    self.trip = session.merge(self.trip)
-                    session.refresh(self.trip)
-                    if self.trip.destination_date is not None and self.trip.destination_position_latitude is None \
+                    try:
+                        self.trip = session.merge(self.trip)
+                        session.refresh(self.trip)
+                    except ObjectDeletedError:
+                        self.trip = session.query(Trip).filter(Trip.vehicle == self.vehicle) \
+                            .order_by(Trip.start_date.desc()).first()
+                        if self.trip is not None:
+                            LOG.info('Last trip for vehicle %s was deleted from database, reloaded last trip', self.vehicle.vin)
+                        else:
+                            LOG.info('Last trip for vehicle %s was deleted from database, no more trips found', self.vehicle.vin)
+                    if self.trip is not None and self.trip.destination_date is not None and self.trip.destination_position_latitude is None \
                             and self.last_parked_position_time is not None \
                             and self.last_parked_position_time < (self.trip.destination_date + timedelta(minutes=5)):
                         self._update_trip_position(session, self.trip, start=False,

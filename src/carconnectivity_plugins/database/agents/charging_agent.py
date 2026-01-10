@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 import logging
 from datetime import timedelta, datetime, timezone
 
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, IntegrityError
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from carconnectivity.observable import Observable
 from carconnectivity.vehicle import ElectricVehicle
@@ -180,8 +181,16 @@ class ChargingAgent(BaseAgent):
             with self.session_factory() as session:
                 with self.last_charging_state_lock:
                     if self.last_charging_state is not None:
-                        self.last_charging_state = session.merge(self.last_charging_state)
-                        session.refresh(self.last_charging_state)
+                        try:
+                            self.last_charging_state = session.merge(self.last_charging_state)
+                            session.refresh(self.last_charging_state)
+                        except ObjectDeletedError:
+                            self.last_charging_state = session.query(ChargingState).filter(ChargingState.vehicle == self.vehicle)\
+                                .order_by(ChargingState.first_date.desc()).first()
+                            if self.last_charging_state is not None:
+                                LOG.info('Last charging state for vehicle %s was deleted from database, reloaded last charging state', self.vehicle.vin)
+                            else:
+                                LOG.info('Last charging state for vehicle %s was deleted from database, no more charging states found', self.vehicle.vin)
                     if element.last_updated is not None \
                             and (self.last_charging_state is None or (self.last_charging_state.state != element.value
                                                                       and element.last_updated > self.last_charging_state.last_date)):
@@ -192,6 +201,9 @@ class ChargingAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new charging state %s for vehicle %s to database', element.value, self.vehicle.vin)
                             self.last_charging_state = new_charging_state
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding charging state for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging state for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -210,8 +222,14 @@ class ChargingAgent(BaseAgent):
 
                     with self.last_charging_session_lock:
                         if self.last_charging_session is not None:
-                            self.last_charging_session = session.merge(self.last_charging_session)
-                            session.refresh(self.last_charging_session)
+                            try:
+                                self.last_charging_session = session.merge(self.last_charging_session)
+                                session.refresh(self.last_charging_session)
+                            except ObjectDeletedError:
+                                self.last_charging_session = session.query(ChargingSession).filter(ChargingSession.vehicle == self.vehicle) \
+                                    .order_by(ChargingSession.session_start_date.desc().nulls_first(),
+                                              ChargingSession.plug_locked_date.desc().nulls_first(),
+                                              ChargingSession.plug_connected_date.desc().nulls_first()).first()
 
                         if element.value in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION) \
                                 and self.carconnectivity_last_charging_state not in (Charging.ChargingState.CHARGING, Charging.ChargingState.CONSERVATION):
@@ -249,6 +267,9 @@ class ChargingAgent(BaseAgent):
                                         self._update_session_charging_type(session, new_session)
                                         self.last_charging_session = new_session
                                         session.commit()
+                                    except IntegrityError as err:
+                                        session.rollback()
+                                        LOG.error('IntegrityError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
                                     except DatabaseError as err:
                                         session.rollback()
                                         LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -313,8 +334,16 @@ class ChargingAgent(BaseAgent):
             with self.last_charging_rate_lock:
                 with self.session_factory() as session:
                     if self.last_charging_rate is not None:
-                        self.last_charging_rate = session.merge(self.last_charging_rate)
-                        session.refresh(self.last_charging_rate)
+                        try:
+                            self.last_charging_rate = session.merge(self.last_charging_rate)
+                            session.refresh(self.last_charging_rate)
+                        except ObjectDeletedError:
+                            self.last_charging_rate = session.query(ChargingRate).filter(ChargingRate.vehicle == self.vehicle)\
+                                .order_by(ChargingRate.first_date.desc()).first()
+                            if self.last_charging_rate is not None:
+                                LOG.info('Last charging rate for vehicle %s was deleted from database, reloaded last charging rate', self.vehicle.vin)
+                            else:
+                                LOG.info('Last charging rate for vehicle %s was deleted from database, no more charging rates found', self.vehicle.vin)
                     if element.last_updated is not None \
                             and (self.last_charging_rate is None or (self.last_charging_rate.rate != element.value
                                                                      and element.last_updated > self.last_charging_rate.last_date)):
@@ -325,6 +354,9 @@ class ChargingAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new charging rate %s for vehicle %s to database', element.value, self.vehicle.vin)
                             self.last_charging_rate = new_charging_rate
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding charging rate for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging rate for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -349,8 +381,16 @@ class ChargingAgent(BaseAgent):
             with self.last_charging_power_lock:
                 with self.session_factory() as session:
                     if self.last_charging_power is not None:
-                        self.last_charging_power = session.merge(self.last_charging_power)
-                        session.refresh(self.last_charging_power)
+                        try:
+                            self.last_charging_power = session.merge(self.last_charging_power)
+                            session.refresh(self.last_charging_power)
+                        except ObjectDeletedError:
+                            self.last_charging_power = session.query(ChargingPower).filter(ChargingPower.vehicle == self.vehicle)\
+                                .order_by(ChargingPower.first_date.desc()).first()
+                            if self.last_charging_power is not None:
+                                LOG.info('Last charging power for vehicle %s was deleted from database, reloaded last charging power', self.vehicle.vin)
+                            else:
+                                LOG.info('Last charging power for vehicle %s was deleted from database, no more charging powers found', self.vehicle.vin)
                     if element.last_updated is not None \
                             and (self.last_charging_power is None or (self.last_charging_power.power != element.value
                                                                       and element.last_updated > self.last_charging_power.last_date)):
@@ -361,6 +401,9 @@ class ChargingAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new charging power %s for vehicle %s to database', element.value, self.vehicle.vin)
                             self.last_charging_power = new_charging_power
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding charging power for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging power for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -385,9 +428,18 @@ class ChargingAgent(BaseAgent):
         with self.session_factory() as session:
             with self.last_charging_session_lock:
                 if self.last_charging_session is not None:
-                    self.last_charging_session = session.merge(self.last_charging_session)
-                    session.refresh(self.last_charging_session)
-
+                    try:
+                        self.last_charging_session = session.merge(self.last_charging_session)
+                        session.refresh(self.last_charging_session)
+                    except ObjectDeletedError:
+                        self.last_charging_session = session.query(ChargingSession).filter(ChargingSession.vehicle == self.vehicle) \
+                            .order_by(ChargingSession.session_start_date.desc().nulls_first(),
+                                      ChargingSession.plug_locked_date.desc().nulls_first(),
+                                      ChargingSession.plug_connected_date.desc().nulls_first()).first()
+                        if self.last_charging_session is not None:
+                            LOG.info('Last charging session for vehicle %s was deleted from database, reloaded last charging session', self.vehicle.vin)
+                        else:
+                            LOG.info('Last charging session for vehicle %s was deleted from database, no more charging sessions found', self.vehicle.vin)
                 if element.value == ChargingConnector.ChargingConnectorConnectionState.CONNECTED \
                         and self.carconnectivity_last_connector_state is not None \
                         and self.carconnectivity_last_connector_state != ChargingConnector.ChargingConnectorConnectionState.CONNECTED:
@@ -401,6 +453,9 @@ class ChargingAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
                             self.last_charging_session = new_session
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -445,6 +500,9 @@ class ChargingAgent(BaseAgent):
                                 session.commit()
                                 LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
                                 self.last_charging_session = new_session
+                            except IntegrityError as err:
+                                session.rollback()
+                                LOG.error('IntegrityError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -469,9 +527,18 @@ class ChargingAgent(BaseAgent):
         with self.session_factory() as session:
             with self.last_charging_session_lock:
                 if self.last_charging_session is not None:
-                    self.last_charging_session = session.merge(self.last_charging_session)
-                    session.refresh(self.last_charging_session)
-
+                    try:
+                        self.last_charging_session = session.merge(self.last_charging_session)
+                        session.refresh(self.last_charging_session)
+                    except ObjectDeletedError:
+                        self.last_charging_session = session.query(ChargingSession).filter(ChargingSession.vehicle == self.vehicle) \
+                            .order_by(ChargingSession.session_start_date.desc().nulls_first(),
+                                      ChargingSession.plug_locked_date.desc().nulls_first(),
+                                      ChargingSession.plug_connected_date.desc().nulls_first()).first()
+                        if self.last_charging_session is not None:
+                            LOG.info('Last charging session for vehicle %s was deleted from database, reloaded last charging session', self.vehicle.vin)
+                        else:
+                            LOG.info('Last charging session for vehicle %s was deleted from database, no more charging sessions found', self.vehicle.vin)
                 if element.value == ChargingConnector.ChargingConnectorLockState.LOCKED \
                         and self.carconnectivity_last_connector_lock_state is not None \
                         and self.carconnectivity_last_connector_lock_state != ChargingConnector.ChargingConnectorLockState.LOCKED:
@@ -499,6 +566,9 @@ class ChargingAgent(BaseAgent):
                                 session.commit()
                                 LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
                                 self.last_charging_session = new_session
+                            except IntegrityError as err:
+                                session.rollback()
+                                LOG.error('IntegrityError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -552,6 +622,9 @@ class ChargingAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
                             self.last_charging_session = new_session
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -636,8 +709,18 @@ class ChargingAgent(BaseAgent):
             with self.session_factory() as session:
                 with self.last_charging_session_lock:
                     if self.last_charging_session is not None:
-                        self.last_charging_session = session.merge(self.last_charging_session)
-                        session.refresh(self.last_charging_session)
+                        try:
+                            self.last_charging_session = session.merge(self.last_charging_session)
+                            session.refresh(self.last_charging_session)
+                        except ObjectDeletedError:
+                            self.last_charging_session = session.query(ChargingSession).filter(ChargingSession.vehicle == self.vehicle) \
+                                .order_by(ChargingSession.session_start_date.desc().nulls_first(),
+                                          ChargingSession.plug_locked_date.desc().nulls_first(),
+                                          ChargingSession.plug_connected_date.desc().nulls_first()).first()
+                            if self.last_charging_session is not None:
+                                LOG.info('Last charging session for vehicle %s was deleted from database, reloaded last charging session', self.vehicle.vin)
+                            else:
+                                LOG.info('Last charging session for vehicle %s was deleted from database, no more charging sessions found', self.vehicle.vin)
                     if self.last_charging_session is not None and not self.last_charging_session.is_closed() \
                             and element.value in [Charging.ChargingType.AC, Charging.ChargingType.DC]:
                         try:
@@ -656,8 +739,18 @@ class ChargingAgent(BaseAgent):
             with self.session_factory() as session:
                 with self.last_charging_session_lock:
                     if self.last_charging_session is not None:
-                        self.last_charging_session = session.merge(self.last_charging_session)
-                        session.refresh(self.last_charging_session)
+                        try:
+                            self.last_charging_session = session.merge(self.last_charging_session)
+                            session.refresh(self.last_charging_session)
+                        except ObjectDeletedError:
+                            self.last_charging_session = session.query(ChargingSession).filter(ChargingSession.vehicle == self.vehicle) \
+                                .order_by(ChargingSession.session_start_date.desc().nulls_first(),
+                                          ChargingSession.plug_locked_date.desc().nulls_first(),
+                                          ChargingSession.plug_connected_date.desc().nulls_first()).first()
+                            if self.last_charging_session is not None:
+                                LOG.info('Last charging session for vehicle %s was deleted from database, reloaded last charging session', self.vehicle.vin)
+                            else:
+                                LOG.info('Last charging session for vehicle %s was deleted from database, no more charging sessions found', self.vehicle.vin)
                     if self.last_charging_session is not None and self.last_charging_session.session_end_date is not None:
                         if element.last_updated is not None and (element.last_updated <= (self.last_charging_session.session_end_date + timedelta(minutes=1))):
                             # Only update if we have no end level yet or the new level is higher than the previous one (this happens with late level updates)
@@ -678,8 +771,18 @@ class ChargingAgent(BaseAgent):
             with self.last_battery_temperature_lock:
                 with self.session_factory() as session:
                     if self.last_battery_temperature is not None:
-                        self.last_battery_temperature = session.merge(self.last_battery_temperature)
-                        session.refresh(self.last_battery_temperature)
+                        try:
+                            self.last_battery_temperature = session.merge(self.last_battery_temperature)
+                            session.refresh(self.last_battery_temperature)
+                        except ObjectDeletedError:
+                            self.last_battery_temperature = session.query(BatteryTemperature).filter(BatteryTemperature.vehicle == self.vehicle)\
+                                .order_by(BatteryTemperature.first_date.desc()).first()
+                            if self.last_battery_temperature is not None:
+                                LOG.info('Last battery temperature for vehicle %s was deleted from database, reloaded last battery temperature',
+                                         self.vehicle.vin)
+                            else:
+                                LOG.info('Last battery temperature for vehicle %s was deleted from database, no more battery temperatures found',
+                                         self.vehicle.vin)
                     if element.last_updated is not None \
                             and (self.last_battery_temperature is None or (self.last_battery_temperature.battery_temperature != element.value
                                                                            and element.last_updated > self.last_battery_temperature.last_date)):
@@ -690,6 +793,9 @@ class ChargingAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new battery temperature %.2f for vehicle %s to database', element.value, self.vehicle.vin)
                             self.last_battery_temperature = new_battery_temperature
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding battery temperature for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding battery temperature for vehicle %s to database: %s', self.vehicle.vin, err)

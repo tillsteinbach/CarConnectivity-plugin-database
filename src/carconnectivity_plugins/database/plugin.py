@@ -8,7 +8,7 @@ import logging
 
 from sqlalchemy import Engine, create_engine, text, inspect
 from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy.exc import DatabaseError, OperationalError
+from sqlalchemy.exc import DatabaseError, OperationalError, IntegrityError
 from sqlalchemy.orm.session import Session
 
 from carconnectivity.errors import ConfigurationError
@@ -107,6 +107,10 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                                             LOG.debug('Added new vehicle %s to database', garage_vehicle.vin.value)
                                             new_vehicle.connect(self, self.scoped_session_factory, garage_vehicle)
                                             self.vehicles[garage_vehicle.vin.value] = new_vehicle
+                                        except IntegrityError as err:
+                                            session.rollback()
+                                            LOG.error('IntegrityError while adding vehicle %s to database: %s', garage_vehicle.vin.value, err)
+                                            self.healthy._set_value(value=False)  # pylint: disable=protected-access
                                         except DatabaseError as err:
                                             session.rollback()
                                             LOG.error('DatabaseError while adding vehicle %s to database: %s', garage_vehicle.vin.value, err)
@@ -153,6 +157,10 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                                     session.add(vehicle)
                                     session.commit()
                                     vehicle.connect(self, self.scoped_session_factory, element)
+                                except IntegrityError as err:
+                                    session.rollback()
+                                    LOG.error('IntegrityError while adding vehicle %s to database: %s', element.vin.value, err)
+                                    self.healthy._set_value(value=False)  # pylint: disable=protected-access
                                 except DatabaseError as err:
                                     session.rollback()
                                     LOG.error('DatabaseError while adding vehicle %s to database: %s', element.vin.value, err)

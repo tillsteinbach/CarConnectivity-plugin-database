@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 
 import logging
 
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, IntegrityError
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from carconnectivity.observable import Observable
 from carconnectivity.utils.timeout_lock import TimeoutLock
@@ -79,8 +80,18 @@ class ClimatizationAgent(BaseAgent):
             with self.last_state_lock:
                 with self.session_factory() as session:
                     if self.last_state is not None:
-                        self.last_state = session.merge(self.last_state)
-                        session.refresh(self.last_state)
+                        try:
+                            self.last_state = session.merge(self.last_state)
+                            session.refresh(self.last_state)
+                        except ObjectDeletedError:
+                            self.last_state = session.query(ClimatizationState).filter(ClimatizationState.vehicle == self.vehicle) \
+                                .order_by(ClimatizationState.first_date.desc()).first()
+                            if self.last_state is not None:
+                                LOG.info('Last climatization state for vehicle %s was deleted from database, reloaded last climatization state',
+                                         self.vehicle.vin)
+                            else:
+                                LOG.info('Last climatization state for vehicle %s was deleted from database, no more climatization states found',
+                                         self.vehicle.vin)
                     if element.last_updated is not None \
                             and (self.last_state is None or (self.last_state.state != element.value
                                                              and element.last_updated > self.last_state.last_date)):
@@ -91,6 +102,9 @@ class ClimatizationAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new climatization state %s for vehicle %s to database', element.value, self.vehicle.vin)
                             self.last_state = new_state
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding climatization state for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding climatizationstate for vehicle %s to database: %s', self.vehicle.vin, err)

@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 
 import logging
 
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, IntegrityError
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from carconnectivity.observable import Observable
 from carconnectivity.utils.timeout_lock import TimeoutLock
@@ -83,8 +84,16 @@ class StateAgent(BaseAgent):
             with self.last_state_lock:
                 with self.session_factory() as session:
                     if self.last_state is not None:
-                        self.last_state = session.merge(self.last_state)
-                        session.refresh(self.last_state)
+                        try:
+                            self.last_state = session.merge(self.last_state)
+                            session.refresh(self.last_state)
+                        except ObjectDeletedError:
+                            self.last_state = session.query(State).filter(State.vehicle == self.vehicle) \
+                                .order_by(State.first_date.desc()).first()
+                            if self.last_state is not None:
+                                LOG.info('Last state for vehicle %s was deleted from database, reloaded last state', self.vehicle.vin)
+                            else:
+                                LOG.info('Last state for vehicle %s was deleted from database, no more states found', self.vehicle.vin)
                     if element.last_updated is not None \
                             and (self.last_state is None or (self.last_state.state != element.value
                                                              and element.last_updated > self.last_state.last_date)):
@@ -94,6 +103,9 @@ class StateAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new state %s for vehicle %s to database', element.value, self.vehicle.vin)
                             self.last_state = new_state
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding state for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding state for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -117,8 +129,16 @@ class StateAgent(BaseAgent):
             with self.last_connection_state_lock:
                 with self.session_factory() as session:
                     if self.last_connection_state is not None:
-                        self.last_connection_state = session.merge(self.last_connection_state)
-                        session.refresh(self.last_connection_state)
+                        try:
+                            self.last_connection_state = session.merge(self.last_connection_state)
+                            session.refresh(self.last_connection_state)
+                        except ObjectDeletedError:
+                            self.last_connection_state = session.query(ConnectionState).filter(ConnectionState.vehicle == self.vehicle) \
+                                .order_by(ConnectionState.first_date.desc()).first()
+                            if self.last_connection_state is not None:
+                                LOG.info('Last connection state for vehicle %s was deleted from database, reloaded last connection state', self.vehicle.vin)
+                            else:
+                                LOG.info('Last connection state for vehicle %s was deleted from database, no more connection states found', self.vehicle.vin)
                     if element.last_updated is not None \
                             and (self.last_connection_state is None or (self.last_connection_state.connection_state != element.value
                                                                         and element.last_updated > self.last_connection_state.last_date)):
@@ -129,6 +149,9 @@ class StateAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new connection state %s for vehicle %s to database', element.value, self.vehicle.vin)
                             self.last_connection_state = new_connection_state
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding state for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding connection state for vehicle %s to database: %s', self.vehicle.vin, err)
@@ -152,8 +175,18 @@ class StateAgent(BaseAgent):
             with self.last_outside_temperature_lock:
                 with self.session_factory() as session:
                     if self.last_outside_temperature is not None:
-                        self.last_outside_temperature = session.merge(self.last_outside_temperature)
-                        session.refresh(self.last_outside_temperature)
+                        try:
+                            self.last_outside_temperature = session.merge(self.last_outside_temperature)
+                            session.refresh(self.last_outside_temperature)
+                        except ObjectDeletedError:
+                            self.last_outside_temperature = session.query(OutsideTemperature).filter(OutsideTemperature.vehicle == self.vehicle) \
+                                .order_by(OutsideTemperature.first_date.desc()).first()
+                            if self.last_outside_temperature is not None:
+                                LOG.info('Last outside temperature for vehicle %s was deleted from database, reloaded last outside temperature',
+                                         self.vehicle.vin)
+                            else:
+                                LOG.info('Last outside temperature for vehicle %s was deleted from database, no more outside temperatures found',
+                                         self.vehicle.vin)
                     if element.last_updated is not None \
                             and (self.last_outside_temperature is None or (self.last_outside_temperature.outside_temperature != element.value
                                                                            and element.last_updated > self.last_outside_temperature.last_date)):
@@ -164,6 +197,9 @@ class StateAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new outside temperature %.2f for vehicle %s to database', element.value, self.vehicle.vin)
                             self.last_outside_temperature = new_outside_temperature
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding outside temperature for vehicle %s to database: %s', self.vehicle.vin, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding outside temperature for vehicle %s to database: %s', self.vehicle.vin, err)

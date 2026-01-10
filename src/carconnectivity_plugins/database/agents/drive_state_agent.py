@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 
 import logging
 
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, IntegrityError
+from sqlalchemy.orm.exc import ObjectDeletedError
 
 from carconnectivity.observable import Observable
 from carconnectivity.drive import ElectricDrive, CombustionDrive
@@ -162,8 +163,16 @@ class DriveStateAgent(BaseAgent):
                     self.drive = session.merge(self.drive)
                     session.refresh(self.drive)
                     if self.last_level is not None:
-                        self.last_level = session.merge(self.last_level)
-                        session.refresh(self.last_level)
+                        try:
+                            self.last_level = session.merge(self.last_level)
+                            session.refresh(self.last_level)
+                        except ObjectDeletedError:
+                            self.last_level = session.query(DriveLevel).filter(DriveLevel.drive_id == self.drive.id) \
+                                .order_by(DriveLevel.first_date.desc()).first()
+                            if self.last_level is not None:
+                                LOG.info('Last level for drive %s was deleted from database, reloaded last level', self.drive.id)
+                            else:
+                                LOG.info('Last level for drive %s was deleted from database, no more levels found', self.drive.id)
                     if element.last_updated is not None \
                             and (self.last_level is None or (self.last_level.level != element.value
                                                              and element.last_updated > self.last_level.last_date)):
@@ -174,6 +183,9 @@ class DriveStateAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new level %s for drive %s to database', element.value, self.drive.id)
                             self.last_level = new_level
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding drive level for drive %s to database: %s', self.drive.id, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding level for drive %s to database: %s', self.drive.id, err)
@@ -199,8 +211,16 @@ class DriveStateAgent(BaseAgent):
                     self.drive = session.merge(self.drive)
                     session.refresh(self.drive)
                     if self.last_range is not None:
-                        self.last_range = session.merge(self.last_range)
-                        session.refresh(self.last_range)
+                        try:
+                            self.last_range = session.merge(self.last_range)
+                            session.refresh(self.last_range)
+                        except ObjectDeletedError:
+                            self.last_range = session.query(DriveRange).filter(DriveRange.drive_id == self.drive.id) \
+                                .order_by(DriveRange.first_date.desc()).first()
+                            if self.last_range is not None:
+                                LOG.info('Last range for drive %s was deleted from database, reloaded last range', self.drive.id)
+                            else:
+                                LOG.info('Last range for drive %s was deleted from database, no more ranges found', self.drive.id)
                     if element.last_updated is not None \
                             and (self.last_range is None or (self.last_range.range != element.value
                                                              and element.last_updated > self.last_range.last_date)):
@@ -211,6 +231,9 @@ class DriveStateAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new range %s for drive %s to database', element.value, self.drive.id)
                             self.last_range = new_range
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding drive range for drive %s to database: %s', self.drive.id, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding range for drive %s to database: %s', self.drive.id, err)
@@ -236,8 +259,16 @@ class DriveStateAgent(BaseAgent):
                     self.drive = session.merge(self.drive)
                     session.refresh(self.drive)
                     if self.last_range_estimated_full is not None:
-                        self.last_range_estimated_full = session.merge(self.last_range_estimated_full)
-                        session.refresh(self.last_range_estimated_full)
+                        try:
+                            self.last_range_estimated_full = session.merge(self.last_range_estimated_full)
+                            session.refresh(self.last_range_estimated_full)
+                        except ObjectDeletedError:
+                            self.last_range_estimated_full = session.query(DriveRangeEstimatedFull).filter(DriveRangeEstimatedFull.drive_id == self.drive.id) \
+                                .order_by(DriveRangeEstimatedFull.first_date.desc()).first()
+                            if self.last_range_estimated_full is not None:
+                                LOG.info('Last range_estimated_full for drive %s was deleted from database, reloaded last range_estimated_full', self.drive.id)
+                            else:
+                                LOG.info('Last range_estimated_full for drive %s was deleted from database, no more range_estimated_full found', self.drive.id)
                     if element.last_updated is not None \
                             and (self.last_range_estimated_full is None or (self.last_range_estimated_full.range_estimated_full != element.value
                                                                             and element.last_updated > self.last_range_estimated_full.last_date)):
@@ -248,6 +279,9 @@ class DriveStateAgent(BaseAgent):
                             session.commit()
                             LOG.debug('Added new range_estimated_full %s for drive %s to database', element.value, self.drive.id)
                             self.last_range_estimated_full = new_range
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding drive range for drive %s to database: %s', self.drive.id, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding range_estimated_full for drive %s to database: %s', self.drive.id, err)
@@ -353,18 +387,29 @@ class DriveStateAgent(BaseAgent):
                     self.drive = session.merge(self.drive)
                     session.refresh(self.drive)
                     if self.last_electric_consumption is not None:
-                        self.last_electric_consumption = session.merge(self.last_electric_consumption)
-                        session.refresh(self.last_electric_consumption)
+                        try:
+                            self.last_electric_consumption = session.merge(self.last_electric_consumption)
+                            session.refresh(self.last_electric_consumption)
+                        except ObjectDeletedError:
+                            self.last_electric_consumption = session.query(DriveConsumption).filter(DriveConsumption.drive_id == self.drive.id) \
+                                .order_by(DriveConsumption.first_date.desc()).first()
+                            if self.last_electric_consumption is not None:
+                                LOG.info('Last electric consumption for drive %s was deleted from database, reloaded last electric consumption', self.drive.id)
+                            else:
+                                LOG.info('Last electric consumption for drive %s was deleted from database, no more electric consumptions found', self.drive.id)
                     if element.last_updated is not None \
                             and (self.last_electric_consumption is None or (self.last_electric_consumption.consumption != element.value
                                                                             and element.last_updated > self.last_electric_consumption.last_date)):
-                        new_level: DriveConsumption = DriveConsumption(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
-                                                                       consumption=element.value)
+                        new_consumption: DriveConsumption = DriveConsumption(drive_id=self.drive.id, first_date=element.last_updated,
+                                                                             last_date=element.last_updated, consumption=element.value)
                         try:
-                            session.add(new_level)
+                            session.add(new_consumption)
                             session.commit()
                             LOG.debug('Added new consumption %s for drive %s to database', element.value, self.drive.id)
-                            self.last_electric_consumption = new_level
+                            self.last_electric_consumption = new_consumption
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding drive consumption for drive %s to database: %s', self.drive.id, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding consumption for drive %s to database: %s', self.drive.id, err)
@@ -390,18 +435,29 @@ class DriveStateAgent(BaseAgent):
                     self.drive = session.merge(self.drive)
                     session.refresh(self.drive)
                     if self.last_fuel_consumption is not None:
-                        self.last_fuel_consumption = session.merge(self.last_fuel_consumption)
-                        session.refresh(self.last_fuel_consumption)
+                        try:
+                            self.last_fuel_consumption = session.merge(self.last_fuel_consumption)
+                            session.refresh(self.last_fuel_consumption)
+                        except ObjectDeletedError:
+                            self.last_fuel_consumption = session.query(DriveConsumption).filter(DriveConsumption.drive_id == self.drive.id) \
+                                .order_by(DriveConsumption.first_date.desc()).first()
+                            if self.last_fuel_consumption is not None:
+                                LOG.info('Last fuel consumption for drive %s was deleted from database, reloaded last fuel consumption', self.drive.id)
+                            else:
+                                LOG.info('Last fuel consumption for drive %s was deleted from database, no more fuel consumptions found', self.drive.id)
                     if element.last_updated is not None \
                             and (self.last_fuel_consumption is None or (self.last_fuel_consumption.consumption != element.value
                                                                         and element.last_updated > self.last_fuel_consumption.last_date)):
-                        new_level: DriveConsumption = DriveConsumption(drive_id=self.drive.id, first_date=element.last_updated, last_date=element.last_updated,
-                                                                       consumption=element.value)
+                        new_consumption: DriveConsumption = DriveConsumption(drive_id=self.drive.id, first_date=element.last_updated,
+                                                                             last_date=element.last_updated, consumption=element.value)
                         try:
-                            session.add(new_level)
+                            session.add(new_consumption)
                             session.commit()
                             LOG.debug('Added new consumption %s for drive %s to database', element.value, self.drive.id)
-                            self.last_fuel_consumption = new_level
+                            self.last_fuel_consumption = new_consumption
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding drive consumption for drive %s to database: %s', self.drive.id, err)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while adding consumption for drive %s to database: %s', self.drive.id, err)

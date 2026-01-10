@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import logging
 
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, IntegrityError
 
 from carconnectivity.observable import Observable
 from carconnectivity.vehicle import GenericVehicle
@@ -96,6 +96,9 @@ class RefuelAgent(BaseAgent):
                         session.commit()
                         LOG.debug('Added new refuel session for vehicle %s to database', self.carconnectivity_vehicle.vin.value)
                         self.last_refuel_session = new_session
+                    except IntegrityError as err:
+                        session.rollback()
+                        LOG.error('IntegrityError while adding refuel session for vehicle %s to database: %s', self.carconnectivity_vehicle.vin.value, err)
                     except DatabaseError as err:
                         session.rollback()
                         LOG.error('DatabaseError while adding refuel session for vehicle %s to database: %s', self.carconnectivity_vehicle.vin.value, err)
