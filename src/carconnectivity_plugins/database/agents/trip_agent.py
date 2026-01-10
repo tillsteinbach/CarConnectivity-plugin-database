@@ -87,7 +87,7 @@ class TripAgent(BaseAgent):
         self.carconnectivity_vehicle.position.longitude.add_observer(self._on_position_longitude_change, Observable.ObserverEvent.UPDATED)
         self._on_position_longitude_change(self.carconnectivity_vehicle.position.longitude, Observable.ObserverEvent.UPDATED)
 
-    # pylint: disable-next=too-many-branches
+    # pylint: disable-next=too-many-branches,too-many-statements
     def __on_state_change(self, element: EnumAttribute[GenericVehicle.State], flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:
