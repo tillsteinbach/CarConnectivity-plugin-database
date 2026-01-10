@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 import threading
 
+import locale
+
 import logging
 
 from sqlalchemy import Engine, create_engine, text, inspect
@@ -52,6 +54,27 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
             self.active_config['db_url'] = config['db_url']
         else:
             raise ConfigurationError('db_url must be configured in the plugin config')
+
+        if 'locale' in config and config['locale'] is not None:
+            self.active_config['locale'] = config['locale']
+            try:
+                locale.setlocale(locale.LC_ALL, self.active_config['locale'])
+                if self.active_config['time_format'] is None or self.active_config['time_format'] == '':
+                    self.active_config['time_format'] = locale.nl_langinfo(locale.D_T_FMT)
+            except locale.Error as err:
+                raise ConfigurationError(f'Invalid locale specified in config ("locale" must be a valid locale): {str(err)}', ) from err
+        elif 'locale' in self.car_connectivity.active_config and self.car_connectivity.active_config['locale'] is not None:
+            self.active_config['locale'] = self.car_connectivity.active_config['locale']
+            try:
+                locale.setlocale(locale.LC_ALL, self.active_config['locale'])
+                if 'time_format' in self.car_connectivity.active_config \
+                    and (self.car_connectivity.active_config['time_format'] is None or self.car_connectivity.active_config['time_format'] == ''):
+                    self.active_config['time_format'] = locale.nl_langinfo(locale.D_T_FMT)
+            except locale.Error as err:
+                raise ConfigurationError(f'Invalid locale specified in carConnectivity config ("locale" must be a valid locale): {str(err)}', ) from err
+        else:
+            self.active_config['locale'] = locale.getlocale()[0]
+        self.locale: str = self.active_config['locale'] or ''
 
         connect_args = {}
         if 'postgresql' in self.active_config['db_url']:
