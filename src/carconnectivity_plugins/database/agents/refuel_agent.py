@@ -119,7 +119,7 @@ class RefuelAgent(BaseAgent):
         if self.carconnectivity_vehicle.odometer.enabled:
             if refuel_session.session_odometer is None:
                 try:
-                    refuel_session.session_odometer = self.carconnectivity_vehicle.odometer.value
+                    refuel_session.session_odometer = self.carconnectivity_vehicle.odometer.in_locale(locale=self.database_plugin.locale)[0]
                 except DatabaseError as err:
                     session.rollback()
                     LOG.error('DatabaseError while updating odometer for refuel session of vehicle %s in database: %s',

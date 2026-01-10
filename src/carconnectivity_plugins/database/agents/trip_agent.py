@@ -69,11 +69,13 @@ class TripAgent(BaseAgent):
         self.last_parked_position_time: Optional[datetime] = None
 
         with self.session_factory() as session:
-            self.trip: Optional[Trip] = session.query(Trip).filter(Trip.vehicle == vehicle).order_by(Trip.start_date.desc()).first()
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            self.trip: Optional[Trip] = session.query(Trip).filter(Trip.vehicle == self.vehicle).order_by(Trip.start_date.desc()).first()
             self.trip_lock: TimeoutLock = TimeoutLock()
             if self.trip is not None:
                 if self.trip.destination_date is None:
-                    LOG.info("Last trip for vehicle %s is still open during startup, closing it now", vehicle.vin)
+                    LOG.info("Last trip for vehicle %s is still open during startup, closing it now", self.vehicle.vin)
         self.session_factory.remove()
 
         self.carconnectivity_vehicle.state.add_observer(self.__on_state_change, Observable.ObserverEvent.UPDATED)
@@ -94,6 +96,8 @@ class TripAgent(BaseAgent):
             if element.enabled and element.value is not None:
                 if self.last_carconnectivity_state is not None:
                     with self.session_factory() as session:
+                        self.vehicle = session.merge(self.vehicle)
+                        session.refresh(self.vehicle)
                         with self.trip_lock:
                             if self.trip is not None:
                                 try:
@@ -117,7 +121,7 @@ class TripAgent(BaseAgent):
                                 new_trip: Trip = Trip(vin=self.vehicle.vin, start_date=start_date)
                                 if self.carconnectivity_vehicle.odometer.enabled and \
                                         self.carconnectivity_vehicle.odometer.value is not None:
-                                    new_trip.start_odometer = self.carconnectivity_vehicle.odometer.value
+                                    new_trip.start_odometer = self.carconnectivity_vehicle.odometer.in_locale(locale=self.database_plugin.locale)[0]
                                 if not self._update_trip_position(session=session, trip=new_trip, start=True):
                                     # if now no position is available try the last known position that is not older than 5min
                                     if self.last_parked_position_latitude is not None and self.last_parked_position_longitude is not None \
@@ -146,7 +150,8 @@ class TripAgent(BaseAgent):
                                         self.trip.destination_date = element.last_updated if element.last_updated is not None else datetime.now(tz=timezone.utc)
                                         if self.carconnectivity_vehicle.odometer.enabled and \
                                                 self.carconnectivity_vehicle.odometer.value is not None:
-                                            self.trip.destination_odometer = self.carconnectivity_vehicle.odometer.value
+                                            self.trip.destination_odometer = \
+                                                self.carconnectivity_vehicle.odometer.in_locale(locale=self.database_plugin.locale)[0]
                                             LOG.debug('Set destination odometer %.2f for trip of vehicle %s', self.trip.destination_odometer, self.vehicle.vin)
                                         if self._update_trip_position(session=session, trip=self.trip, start=False):
                                             self.trip = None
@@ -176,6 +181,8 @@ class TripAgent(BaseAgent):
         # Check if there is a finished trip that lacks destination position. We allow 5min after destination_date to set the position.
         if self.trip is not None:
             with self.session_factory() as session:
+                self.vehicle = session.merge(self.vehicle)
+                session.refresh(self.vehicle)
                 with self.trip_lock:
                     try:
                         self.trip = session.merge(self.trip)

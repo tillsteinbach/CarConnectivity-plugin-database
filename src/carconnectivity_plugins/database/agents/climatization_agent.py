@@ -66,7 +66,9 @@ class ClimatizationAgent(BaseAgent):
         self.carconnectivity_vehicle: GenericVehicle = carconnectivity_vehicle
 
         with self.session_factory() as session:
-            self.last_state: Optional[ClimatizationState] = session.query(ClimatizationState).filter(ClimatizationState.vehicle == vehicle)\
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            self.last_state: Optional[ClimatizationState] = session.query(ClimatizationState).filter(ClimatizationState.vehicle == self.vehicle)\
                 .order_by(ClimatizationState.first_date.desc()).first()
             self.last_state_lock: TimeoutLock = TimeoutLock()
 
@@ -79,6 +81,8 @@ class ClimatizationAgent(BaseAgent):
         if element.enabled:
             with self.last_state_lock:
                 with self.session_factory() as session:
+                    self.vehicle = session.merge(self.vehicle)
+                    session.refresh(self.vehicle)
                     if self.last_state is not None:
                         try:
                             self.last_state = session.merge(self.last_state)

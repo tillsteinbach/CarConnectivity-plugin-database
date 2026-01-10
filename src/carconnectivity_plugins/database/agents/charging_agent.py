@@ -101,7 +101,9 @@ class ChargingAgent(BaseAgent):
         self.carconnectivity_vehicle: ElectricVehicle = carconnectivity_vehicle
 
         with self.session_factory() as session:
-            self.last_charging_session: Optional[ChargingSession] = session.query(ChargingSession).filter(ChargingSession.vehicle == vehicle) \
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            self.last_charging_session: Optional[ChargingSession] = session.query(ChargingSession).filter(ChargingSession.vehicle == self.vehicle) \
                 .order_by(ChargingSession.session_start_date.desc().nulls_first(),
                           ChargingSession.plug_locked_date.desc().nulls_first(),
                           ChargingSession.plug_connected_date.desc().nulls_first()).first()
@@ -119,24 +121,24 @@ class ChargingAgent(BaseAgent):
                         ChargingConnector.ChargingConnectorConnectionState.CONNECTED) \
                     or (self.carconnectivity_vehicle.charging.connector.lock_state.enabled
                         and self.carconnectivity_vehicle.charging.connector.lock_state.value == ChargingConnector.ChargingConnectorLockState.LOCKED):
-                    LOG.info("Last charging session for vehicle %s is still open during startup, will continue this session", vehicle.vin)
+                    LOG.info("Last charging session for vehicle %s is still open during startup, will continue this session", self.vehicle.vin)
                 else:
-                    LOG.info("Last charging session for vehicle %s is still open during startup, but we are not charging, ignoring it", vehicle.vin)
+                    LOG.info("Last charging session for vehicle %s is still open during startup, but we are not charging, ignoring it", self.vehicle.vin)
                     self.last_charging_session = None
 
-            self.last_charging_state: Optional[ChargingState] = session.query(ChargingState).filter(ChargingState.vehicle == vehicle)\
+            self.last_charging_state: Optional[ChargingState] = session.query(ChargingState).filter(ChargingState.vehicle == self.vehicle)\
                 .order_by(ChargingState.first_date.desc()).first()
             self.last_charging_state_lock: TimeoutLock = TimeoutLock()
 
-            self.last_charging_rate: Optional[ChargingRate] = session.query(ChargingRate).filter(ChargingRate.vehicle == vehicle)\
+            self.last_charging_rate: Optional[ChargingRate] = session.query(ChargingRate).filter(ChargingRate.vehicle == self.vehicle)\
                 .order_by(ChargingRate.first_date.desc()).first()
             self.last_charging_rate_lock: TimeoutLock = TimeoutLock()
 
-            self.last_charging_power: Optional[ChargingPower] = session.query(ChargingPower).filter(ChargingPower.vehicle == vehicle)\
+            self.last_charging_power: Optional[ChargingPower] = session.query(ChargingPower).filter(ChargingPower.vehicle == self.vehicle)\
                 .order_by(ChargingPower.first_date.desc()).first()
             self.last_charging_power_lock: TimeoutLock = TimeoutLock()
 
-            self.last_battery_temperature: Optional[BatteryTemperature] = session.query(BatteryTemperature).filter(BatteryTemperature.vehicle == vehicle) \
+            self.last_battery_temperature: Optional[BatteryTemperature] = session.query(BatteryTemperature).filter(BatteryTemperature.vehicle == self.vehicle) \
                 .order_by(BatteryTemperature.first_date.desc()).first()
             self.last_battery_temperature_lock: TimeoutLock = TimeoutLock()
 
@@ -179,6 +181,8 @@ class ChargingAgent(BaseAgent):
 
         if element.enabled:
             with self.session_factory() as session:
+                self.vehicle = session.merge(self.vehicle)
+                session.refresh(self.vehicle)
                 with self.last_charging_state_lock:
                     if self.last_charging_state is not None:
                         try:
@@ -331,8 +335,11 @@ class ChargingAgent(BaseAgent):
         if self.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
         if element.enabled:
+            converted_value: Optional[float] = element.in_locale(locale=self.database_plugin.locale)[0]
             with self.last_charging_rate_lock:
                 with self.session_factory() as session:
+                    self.vehicle = session.merge(self.vehicle)
+                    session.refresh(self.vehicle)
                     if self.last_charging_rate is not None:
                         try:
                             self.last_charging_rate = session.merge(self.last_charging_rate)
@@ -345,14 +352,14 @@ class ChargingAgent(BaseAgent):
                             else:
                                 LOG.info('Last charging rate for vehicle %s was deleted from database, no more charging rates found', self.vehicle.vin)
                     if element.last_updated is not None \
-                            and (self.last_charging_rate is None or (self.last_charging_rate.rate != element.value
+                            and (self.last_charging_rate is None or (self.last_charging_rate.rate != converted_value
                                                                      and element.last_updated > self.last_charging_rate.last_date)):
                         new_charging_rate: ChargingRate = ChargingRate(vin=self.vehicle.vin, first_date=element.last_updated,
-                                                                       last_date=element.last_updated, rate=element.value)
+                                                                       last_date=element.last_updated, rate=converted_value)
                         try:
                             session.add(new_charging_rate)
                             session.commit()
-                            LOG.debug('Added new charging rate %s for vehicle %s to database', element.value, self.vehicle.vin)
+                            LOG.debug('Added new charging rate %s for vehicle %s to database', converted_value, self.vehicle.vin)
                             self.last_charging_rate = new_charging_rate
                         except IntegrityError as err:
                             session.rollback()
@@ -361,12 +368,12 @@ class ChargingAgent(BaseAgent):
                             session.rollback()
                             LOG.error('DatabaseError while adding charging rate for vehicle %s to database: %s', self.vehicle.vin, err)
                             self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-                    elif self.last_charging_rate is not None and self.last_charging_rate.rate == element.value and element.last_updated is not None:
+                    elif self.last_charging_rate is not None and self.last_charging_rate.rate == converted_value and element.last_updated is not None:
                         if self.last_charging_rate.last_date is None or element.last_updated > self.last_charging_rate.last_date:
                             try:
                                 self.last_charging_rate.last_date = element.last_updated
                                 session.commit()
-                                LOG.debug('Updated charging rate %s for vehicle %s in database', element.value, self.vehicle.vin)
+                                LOG.debug('Updated charging rate %s for vehicle %s in database', converted_value, self.vehicle.vin)
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating charging rate for vehicle %s in database: %s', self.vehicle.vin, err)
@@ -378,8 +385,11 @@ class ChargingAgent(BaseAgent):
         if self.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
         if element.enabled:
+            converted_value: Optional[float] = element.in_locale(locale=self.database_plugin.locale)[0]
             with self.last_charging_power_lock:
                 with self.session_factory() as session:
+                    self.vehicle = session.merge(self.vehicle)
+                    session.refresh(self.vehicle)
                     if self.last_charging_power is not None:
                         try:
                             self.last_charging_power = session.merge(self.last_charging_power)
@@ -392,14 +402,14 @@ class ChargingAgent(BaseAgent):
                             else:
                                 LOG.info('Last charging power for vehicle %s was deleted from database, no more charging powers found', self.vehicle.vin)
                     if element.last_updated is not None \
-                            and (self.last_charging_power is None or (self.last_charging_power.power != element.value
+                            and (self.last_charging_power is None or (self.last_charging_power.power != converted_value
                                                                       and element.last_updated > self.last_charging_power.last_date)):
                         new_charging_power: ChargingPower = ChargingPower(vin=self.vehicle.vin, first_date=element.last_updated,
-                                                                          last_date=element.last_updated, power=element.value)
+                                                                          last_date=element.last_updated, power=converted_value)
                         try:
                             session.add(new_charging_power)
                             session.commit()
-                            LOG.debug('Added new charging power %s for vehicle %s to database', element.value, self.vehicle.vin)
+                            LOG.debug('Added new charging power %s for vehicle %s to database', converted_value, self.vehicle.vin)
                             self.last_charging_power = new_charging_power
                         except IntegrityError as err:
                             session.rollback()
@@ -408,11 +418,11 @@ class ChargingAgent(BaseAgent):
                             session.rollback()
                             LOG.error('DatabaseError while adding charging power for vehicle %s to database: %s', self.vehicle.vin, err)
                             self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-                    elif self.last_charging_power is not None and self.last_charging_power.power == element.value and element.last_updated is not None:
+                    elif self.last_charging_power is not None and self.last_charging_power.power == converted_value and element.last_updated is not None:
                         if self.last_charging_power.last_date is None or element.last_updated > self.last_charging_power.last_date:
                             try:
                                 self.last_charging_power.last_date = element.last_updated
-                                LOG.debug('Updated charging power %s for vehicle %s in database', element.value, self.vehicle.vin)
+                                LOG.debug('Updated charging power %s for vehicle %s in database', converted_value, self.vehicle.vin)
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating charging power for vehicle %s in database: %s', self.vehicle.vin, err)
@@ -426,6 +436,8 @@ class ChargingAgent(BaseAgent):
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
 
         with self.session_factory() as session:
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
             with self.last_charging_session_lock:
                 if self.last_charging_session is not None:
                     try:
@@ -525,6 +537,8 @@ class ChargingAgent(BaseAgent):
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
 
         with self.session_factory() as session:
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
             with self.last_charging_session_lock:
                 if self.last_charging_session is not None:
                     try:
@@ -645,9 +659,10 @@ class ChargingAgent(BaseAgent):
         if self.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
         if self.carconnectivity_vehicle.odometer.enabled:
+            converted_odometer: Optional[float] = self.carconnectivity_vehicle.odometer.in_locale(locale=self.database_plugin.locale)[0]
             if charging_session.session_odometer is None:
                 try:
-                    charging_session.session_odometer = self.carconnectivity_vehicle.odometer.value
+                    charging_session.session_odometer = converted_odometer
                 except DatabaseError as err:
                     session.rollback()
                     LOG.error('DatabaseError while updating odometer for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
@@ -707,6 +722,8 @@ class ChargingAgent(BaseAgent):
         del flags
         if element.enabled:
             with self.session_factory() as session:
+                self.vehicle = session.merge(self.vehicle)
+                session.refresh(self.vehicle)
                 with self.last_charging_session_lock:
                     if self.last_charging_session is not None:
                         try:
@@ -737,6 +754,8 @@ class ChargingAgent(BaseAgent):
         if element.enabled and element.value is not None:
             # We try to see if there was a late battery level update for a finished session
             with self.session_factory() as session:
+                self.vehicle = session.merge(self.vehicle)
+                session.refresh(self.vehicle)
                 with self.last_charging_session_lock:
                     if self.last_charging_session is not None:
                         try:
@@ -768,8 +787,11 @@ class ChargingAgent(BaseAgent):
     def __on_battery_temperature_change(self, element: TemperatureAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:
+            converted_value: Optional[float] = element.in_locale(locale=self.database_plugin.locale)[0]
             with self.last_battery_temperature_lock:
                 with self.session_factory() as session:
+                    self.vehicle = session.merge(self.vehicle)
+                    session.refresh(self.vehicle)
                     if self.last_battery_temperature is not None:
                         try:
                             self.last_battery_temperature = session.merge(self.last_battery_temperature)
@@ -784,14 +806,14 @@ class ChargingAgent(BaseAgent):
                                 LOG.info('Last battery temperature for vehicle %s was deleted from database, no more battery temperatures found',
                                          self.vehicle.vin)
                     if element.last_updated is not None \
-                            and (self.last_battery_temperature is None or (self.last_battery_temperature.battery_temperature != element.value
+                            and (self.last_battery_temperature is None or (self.last_battery_temperature.battery_temperature != converted_value
                                                                            and element.last_updated > self.last_battery_temperature.last_date)):
                         new_battery_temperature: BatteryTemperature = BatteryTemperature(vin=self.vehicle.vin, first_date=element.last_updated,
-                                                                                         last_date=element.last_updated, battery_temperature=element.value)
+                                                                                         last_date=element.last_updated, battery_temperature=converted_value)
                         try:
                             session.add(new_battery_temperature)
                             session.commit()
-                            LOG.debug('Added new battery temperature %.2f for vehicle %s to database', element.value, self.vehicle.vin)
+                            LOG.debug('Added new battery temperature %.2f for vehicle %s to database', converted_value, self.vehicle.vin)
                             self.last_battery_temperature = new_battery_temperature
                         except IntegrityError as err:
                             session.rollback()
@@ -800,13 +822,13 @@ class ChargingAgent(BaseAgent):
                             session.rollback()
                             LOG.error('DatabaseError while adding battery temperature for vehicle %s to database: %s', self.vehicle.vin, err)
                             self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-                    elif self.last_battery_temperature is not None and self.last_battery_temperature.battery_temperature == element.value \
+                    elif self.last_battery_temperature is not None and self.last_battery_temperature.battery_temperature == converted_value \
                             and element.last_updated is not None:
                         if self.last_battery_temperature.last_date is None or element.last_updated > self.last_battery_temperature.last_date:
                             try:
                                 self.last_battery_temperature.last_date = element.last_updated
                                 session.commit()
-                                LOG.debug('Updated battery temperature %.2f for vehicle %s in database', element.value, self.vehicle.vin)
+                                LOG.debug('Updated battery temperature %.2f for vehicle %s in database', converted_value, self.vehicle.vin)
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating battery temperature for vehicle %s in database: %s', self.vehicle.vin, err)

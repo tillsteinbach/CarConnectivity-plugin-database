@@ -57,14 +57,16 @@ class StateAgent(BaseAgent):
         self.carconnectivity_vehicle: GenericVehicle = carconnectivity_vehicle
 
         with self.session_factory() as session:
-            self.last_state: Optional[State] = session.query(State).filter(State.vehicle == vehicle).order_by(State.first_date.desc()).first()
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            self.last_state: Optional[State] = session.query(State).filter(State.vehicle == self.vehicle).order_by(State.first_date.desc()).first()
             self.last_state_lock: TimeoutLock = TimeoutLock()
 
-            self.last_connection_state: Optional[ConnectionState] = session.query(ConnectionState).filter(ConnectionState.vehicle == vehicle) \
+            self.last_connection_state: Optional[ConnectionState] = session.query(ConnectionState).filter(ConnectionState.vehicle == self.vehicle) \
                 .order_by(ConnectionState.first_date.desc()).first()
             self.last_connection_state_lock: TimeoutLock = TimeoutLock()
 
-            self.last_outside_temperature: Optional[OutsideTemperature] = session.query(OutsideTemperature).filter(OutsideTemperature.vehicle == vehicle) \
+            self.last_outside_temperature: Optional[OutsideTemperature] = session.query(OutsideTemperature).filter(OutsideTemperature.vehicle == self.vehicle) \
                 .order_by(OutsideTemperature.first_date.desc()).first()
             self.last_outside_temperature_lock: TimeoutLock = TimeoutLock()
 
@@ -83,6 +85,8 @@ class StateAgent(BaseAgent):
         if element.enabled:
             with self.last_state_lock:
                 with self.session_factory() as session:
+                    self.vehicle = session.merge(self.vehicle)
+                    session.refresh(self.vehicle)
                     if self.last_state is not None:
                         try:
                             self.last_state = session.merge(self.last_state)
@@ -128,6 +132,8 @@ class StateAgent(BaseAgent):
         if element.enabled:
             with self.last_connection_state_lock:
                 with self.session_factory() as session:
+                    self.vehicle = session.merge(self.vehicle)
+                    session.refresh(self.vehicle)
                     if self.last_connection_state is not None:
                         try:
                             self.last_connection_state = session.merge(self.last_connection_state)
@@ -172,8 +178,11 @@ class StateAgent(BaseAgent):
     def __on_outside_temperature_change(self, element: TemperatureAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:
+            converted_value: Optional[float] = element.in_locale(locale=self.database_plugin.locale)[0]
             with self.last_outside_temperature_lock:
                 with self.session_factory() as session:
+                    self.vehicle = session.merge(self.vehicle)
+                    session.refresh(self.vehicle)
                     if self.last_outside_temperature is not None:
                         try:
                             self.last_outside_temperature = session.merge(self.last_outside_temperature)
@@ -188,14 +197,14 @@ class StateAgent(BaseAgent):
                                 LOG.info('Last outside temperature for vehicle %s was deleted from database, no more outside temperatures found',
                                          self.vehicle.vin)
                     if element.last_updated is not None \
-                            and (self.last_outside_temperature is None or (self.last_outside_temperature.outside_temperature != element.value
+                            and (self.last_outside_temperature is None or (self.last_outside_temperature.outside_temperature != converted_value
                                                                            and element.last_updated > self.last_outside_temperature.last_date)):
                         new_outside_temperature: OutsideTemperature = OutsideTemperature(vin=self.vehicle.vin, first_date=element.last_updated,
-                                                                                         last_date=element.last_updated, outside_temperature=element.value)
+                                                                                         last_date=element.last_updated, outside_temperature=converted_value)
                         try:
                             session.add(new_outside_temperature)
                             session.commit()
-                            LOG.debug('Added new outside temperature %.2f for vehicle %s to database', element.value, self.vehicle.vin)
+                            LOG.debug('Added new outside temperature %.2f for vehicle %s to database', converted_value, self.vehicle.vin)
                             self.last_outside_temperature = new_outside_temperature
                         except IntegrityError as err:
                             session.rollback()
@@ -204,13 +213,13 @@ class StateAgent(BaseAgent):
                             session.rollback()
                             LOG.error('DatabaseError while adding outside temperature for vehicle %s to database: %s', self.vehicle.vin, err)
                             self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-                    elif self.last_outside_temperature is not None and self.last_outside_temperature.outside_temperature == element.value \
+                    elif self.last_outside_temperature is not None and self.last_outside_temperature.outside_temperature == converted_value \
                             and element.last_updated is not None:
                         if self.last_outside_temperature.last_date is None or element.last_updated > self.last_outside_temperature.last_date:
                             try:
                                 self.last_outside_temperature.last_date = element.last_updated
                                 session.commit()
-                                LOG.debug('Updated outside temperature %.2f for vehicle %s in database', element.value, self.vehicle.vin)
+                                LOG.debug('Updated outside temperature %.2f for vehicle %s in database', converted_value, self.vehicle.vin)
                             except DatabaseError as err:
                                 session.rollback()
                                 LOG.error('DatabaseError while updating outside temperature for vehicle %s in database: %s', self.vehicle.vin, err)
