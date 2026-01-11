@@ -18,7 +18,8 @@ dependencies = [
     "sqlalchemy~=2.0.45",
     "psycopg2-binary~=2.9.11",
     "alembic~=1.17.2",
-    "SQLAlchemy-Utc~=0.14.0"
+    "SQLAlchemy-Utc~=0.14.0",
+    "flask_sqlalchemy~=3.1.1"
 ]
 readme = "README.md"
 license = "MIT"
