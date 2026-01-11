@@ -7,8 +7,12 @@ import os
 import flask
 import flask_login
 
+from flask_sqlalchemy import SQLAlchemy
+
 from carconnectivity_plugins.base.plugin import BasePlugin
 from carconnectivity_plugins.base.ui.plugin_ui import BasePluginUI
+
+from carconnectivity_plugins.database.ui.database_edit import bp_database_edit
 
 if TYPE_CHECKING:
     from typing import Optional, List, Dict, Union, Literal
@@ -24,6 +28,13 @@ class PluginUI(BasePluginUI):
         super().__init__(plugin, blueprint=blueprint, app=app, *args, **kwargs)
         self.blueprint.register_blueprint(bp_database_edit)
 
+        with self.app.app_context():
+            flask.current_app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+            flask.current_app.config['SQLALCHEMY_DATABASE_URI'] = self.plugin.active_config['db_url']
+            flask.current_app.extensions['db'] = SQLAlchemy(self.app)
+
+        
+
         @self.blueprint.route('/', methods=['GET'])
         def root():
             return flask.redirect(flask.url_for('plugins.database.status'))
@@ -37,7 +48,8 @@ class PluginUI(BasePluginUI):
         """
         Generates a list of navigation items for the Database plugin UI.
         """
-        return super().get_nav_items() + [{"text": "Status", "url": flask.url_for('plugins.database.status')}]
+        return super().get_nav_items() + [{"text": "Status", "url": flask.url_for('plugins.database.status')},
+                                          {"text": "Edit", "url": flask.url_for('plugins.database.edit.overview')}]
 
     def get_title(self) -> str:
         """
