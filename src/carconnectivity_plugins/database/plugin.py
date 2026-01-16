@@ -80,7 +80,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
         if 'postgresql' in self.active_config['db_url']:
             connect_args['options'] = '-c timezone=utc'
         self.engine: Engine = create_engine(self.active_config['db_url'], pool_pre_ping=True, connect_args=connect_args)
-        session_factory: sessionmaker[Session] = sessionmaker(bind=self.engine, autoflush=True)
+        session_factory: sessionmaker[Session] = sessionmaker(bind=self.engine, autoflush=True, expire_on_commit=False)
         self.scoped_session_factory: scoped_session[Session] = scoped_session(session_factory)
 
         self.vehicles: Dict[str, Vehicle] = {}

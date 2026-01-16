@@ -93,6 +93,7 @@ class Vehicle(Base):
         """
         if self.agents:
             raise ValueError("Can only connect once! Vehicle already connected with database model")
+        vin: str = self.vin
         carconnectivity_vehicle.name.add_observer(self.__on_name_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
         if carconnectivity_vehicle.name.enabled and self.name != carconnectivity_vehicle.name.value:
             self.name = carconnectivity_vehicle.name.value
@@ -118,41 +119,40 @@ class Vehicle(Base):
 
         with session_factory() as session:
             for drive_id, drive in carconnectivity_vehicle.drives.drives.items():
-                drive_db: Optional[Drive] = session.query(Drive).filter(Drive.vin == self.vin, Drive.drive_id == drive_id).first()
+                drive_db: Optional[Drive] = session.query(Drive).filter(Drive.vin == vin, Drive.drive_id == drive_id).first()
                 if drive_db is None:
-                    drive_db = Drive(vin=self.vin, drive_id=drive_id)
+                    drive_db = Drive(vin=vin, drive_id=drive_id)
                     try:
                         session.add(drive_db)
                         session.commit()
-                        LOG.debug('Added new drive %s for vehicle %s to database', drive_id, self.vin)
+                        LOG.debug('Added new drive %s for vehicle %s to database', drive_id, vin)
                         drive_db.connect(database_plugin, session_factory, drive)
                     except IntegrityError as err:
                         session.rollback()
-                        LOG.error('IntegrityError while adding drive %s for vehicle %s to database, likely due to concurrent addition: %s', drive_id, self.vin,
+                        LOG.error('IntegrityError while adding drive %s for vehicle %s to database, likely due to concurrent addition: %s', drive_id, vin,
                                   err)
                         database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     except DatabaseError as err:
                         session.rollback()
-                        LOG.error('DatabaseError while adding drive %s for vehicle %s to database: %s', drive_id, self.vin, err)
+                        LOG.error('DatabaseError while adding drive %s for vehicle %s to database: %s', drive_id, vin, err)
                         database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 else:
                     drive_db.connect(database_plugin, session_factory, drive)
-                    LOG.debug('Connecting drive %s for vehicle %s', drive_id, self.vin)
-
+                    LOG.debug('Connecting drive %s for vehicle %s', drive_id, vin)
             state_agent: StateAgent = StateAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
             self.agents.append(state_agent)
-            LOG.debug("Adding StateAgent to vehicle %s", self.vin)
+            LOG.debug("Adding StateAgent to vehicle %s", vin)
             climazination_agent: ClimatizationAgent = ClimatizationAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
             self.agents.append(climazination_agent)
-            LOG.debug("Adding ClimatizationAgent to vehicle %s", self.vin)
+            LOG.debug("Adding ClimatizationAgent to vehicle %s", vin)
             trip_agent: TripAgent = TripAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
             self.agents.append(trip_agent)
-            LOG.debug("Adding TripAgent to vehicle %s", self.vin)
+            LOG.debug("Adding TripAgent to vehicle %s", vin)
 
             if isinstance(carconnectivity_vehicle, ElectricVehicle):
                 charging_agent: ChargingAgent = ChargingAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
                 self.agents.append(charging_agent)
-                LOG.debug("Adding ChargingAgent to vehicle %s", self.vin)
+                LOG.debug("Adding ChargingAgent to vehicle %s", vin)
         session_factory.remove()
 
     def __on_name_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
