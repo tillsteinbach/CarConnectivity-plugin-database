@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 - No unreleased changes so far
 
+## [0.4] - 2026-01-19
+### Fixed
+- Fixes a problem where not multiple vehicles could be recorde to the database
+
 ## [0.3] - 2026-01-11
 ### Changed
 - Improved robustness
@@ -22,7 +26,8 @@ All notable changes to this project will be documented in this file.
 ## [0.1] - 2026-01-04
 Initial release, let's go and give this to the public to try out...
 
-[unreleased]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/compare/v0.3...HEAD
+[unreleased]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/compare/v0.4...HEAD
+[0.4]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.4
 [0.3]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.3
 [0.2]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.2
 [0.1]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.1
