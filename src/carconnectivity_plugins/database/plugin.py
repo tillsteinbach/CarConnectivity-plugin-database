@@ -68,7 +68,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
             self.active_config['locale'] = self.car_connectivity.active_config['locale']
             try:
                 if 'time_format' in self.car_connectivity.active_config \
-                    and (self.car_connectivity.active_config['time_format'] is None or self.car_connectivity.active_config['time_format'] == ''):
+                        and (self.car_connectivity.active_config['time_format'] is None or self.car_connectivity.active_config['time_format'] == ''):
                     self.active_config['time_format'] = locale.nl_langinfo(locale.D_T_FMT)
             except locale.Error as err:
                 LOG.warning('Invalid locale specified in config ("locale" must be a valid locale): %s', err)
@@ -165,30 +165,25 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
     def __on_add_vehicle(self, element, flags) -> None:
         del flags
         with self.vehicles_lock:
-            if isinstance(element, GenericVehicle) and element.vin.value not in self.vehicles:
+            if isinstance(element, GenericVehicle) and element.vin.value is not None and element.vin.value not in self.vehicles:
                 LOG.debug('New vehicle added to garage: %s', element.vin)
-                if element.vin.value is not None:
-                    with self.scoped_session_factory() as session:
-                        if element.vin.value in self.vehicles:
-                            vehicle: Vehicle = self.vehicles[element.vin.value]
+                with self.scoped_session_factory() as session:
+                    vehicle: Vehicle = session.get(Vehicle, element.vin.value)
+                    if vehicle is None:
+                        vehicle = Vehicle(vin=element.vin.value)
+                        try:
+                            session.add(vehicle)
+                            session.commit()
                             vehicle.connect(self, self.scoped_session_factory, element)
-                        else:
-                            vehicle: Vehicle = session.get(Vehicle, element.vin.value)
-                            if vehicle is None:
-                                vehicle = Vehicle(vin=element.vin.value)
-                                try:
-                                    session.add(vehicle)
-                                    session.commit()
-                                    vehicle.connect(self, self.scoped_session_factory, element)
-                                except IntegrityError as err:
-                                    session.rollback()
-                                    LOG.error('IntegrityError while adding vehicle %s to database: %s', element.vin.value, err)
-                                    self.healthy._set_value(value=False)  # pylint: disable=protected-access
-                                except DatabaseError as err:
-                                    session.rollback()
-                                    LOG.error('DatabaseError while adding vehicle %s to database: %s', element.vin.value, err)
-                                    self.healthy._set_value(value=False)  # pylint: disable=protected-access
-                            else:
-                                vehicle.connect(self, self.scoped_session_factory, element)
-                            self.vehicles[element.vin.value] = vehicle
-                    self.scoped_session_factory.remove()
+                        except IntegrityError as err:
+                            session.rollback()
+                            LOG.error('IntegrityError while adding vehicle %s to database: %s', element.vin.value, err)
+                            self.healthy._set_value(value=False)  # pylint: disable=protected-access
+                        except DatabaseError as err:
+                            session.rollback()
+                            LOG.error('DatabaseError while adding vehicle %s to database: %s', element.vin.value, err)
+                            self.healthy._set_value(value=False)  # pylint: disable=protected-access
+                    else:
+                        vehicle.connect(self, self.scoped_session_factory, element)
+                    self.vehicles[element.vin.value] = vehicle
+                self.scoped_session_factory.remove()
