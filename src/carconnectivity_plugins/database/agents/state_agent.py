@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import scoped_session
     from sqlalchemy.orm.session import Session
 
-    from carconnectivity.attributes import EnumAttribute, TemperatureAttribute
+    from carconnectivity.attributes import EnumAttribute, TemperatureAttribute, StringAttribute, IntegerAttribute
 
     from carconnectivity.vehicle import GenericVehicle
 
@@ -78,6 +78,15 @@ class StateAgent(BaseAgent):
 
             self.carconnectivity_vehicle.outside_temperature.add_observer(self.__on_outside_temperature_change, Observable.ObserverEvent.UPDATED)
             self.__on_outside_temperature_change(self.carconnectivity_vehicle.outside_temperature, Observable.ObserverEvent.UPDATED)
+
+            self.carconnectivity_vehicle.name.add_observer(self.__on_name_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+            self.carconnectivity_vehicle.manufacturer.add_observer(self.__on_manufacturer_change, Observable.ObserverEvent.VALUE_CHANGED,
+                                                                   on_transaction_end=True)
+            self.carconnectivity_vehicle.model.add_observer(self.__on_model_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+            self.carconnectivity_vehicle.model_year.add_observer(self.__on_model_year_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+            self.carconnectivity_vehicle.type.add_observer(self.__on_type_change, Observable.ObserverEvent.VALUE_CHANGED, on_transaction_end=True)
+            self.carconnectivity_vehicle.license_plate.add_observer(self.__on_license_plate_change, Observable.ObserverEvent.VALUE_CHANGED,
+                                                                    on_transaction_end=True)
         self.session_factory.remove()
 
     def __on_state_change(self, element: EnumAttribute[GenericVehicle.State], flags: Observable.ObserverEvent) -> None:
@@ -225,3 +234,57 @@ class StateAgent(BaseAgent):
                                 LOG.error('DatabaseError while updating outside temperature for vehicle %s in database: %s', self.vehicle.vin, err)
                                 self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                 self.session_factory.remove()
+
+    def __on_name_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.session_factory() as session:
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            if self.vehicle.name != element.value:
+                self.vehicle.name = element.value
+        self.session_factory.remove()
+
+    def __on_manufacturer_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.session_factory() as session:
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            if self.vehicle.manufacturer != element.value:
+                self.vehicle.manufacturer = element.value
+        self.session_factory.remove()
+
+    def __on_model_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.session_factory() as session:
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            if self.vehicle.model != element.value:
+                self.vehicle.model = element.value
+        self.session_factory.remove()
+
+    def __on_model_year_change(self, element: IntegerAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.session_factory() as session:
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            if self.vehicle.model_year != element.value:
+                self.vehicle.model_year = element.value
+        self.session_factory.remove()
+
+    def __on_type_change(self, element: EnumAttribute[GenericVehicle.Type], flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.session_factory() as session:
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            if element.value is not None and self.vehicle.type != element.value:
+                self.vehicle.type = element.value
+        self.session_factory.remove()
+
+    def __on_license_plate_change(self, element: StringAttribute, flags: Observable.ObserverEvent) -> None:
+        del flags
+        with self.session_factory() as session:
+            self.vehicle = session.merge(self.vehicle)
+            session.refresh(self.vehicle)
+            if self.vehicle.license_plate != element.value:
+                self.vehicle.license_plate = element.value
+        self.session_factory.remove()
