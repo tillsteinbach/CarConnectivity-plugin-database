@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 import logging
 
 from sqlalchemy import ForeignKey, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, reconstructor
 
 from carconnectivity.drive import GenericDrive, CombustionDrive
 
@@ -65,6 +65,10 @@ class Drive(Base):
     def __init__(self, vin, drive_id: Optional[str] = None) -> None:
         self.vin = vin
         self.drive_id = drive_id
+
+    @reconstructor
+    def init_on_load(self):
+        self.agents = []
 
     def connect(self, database_plugin: Plugin, session_factory: scoped_session[Session], carconnectivity_drive: GenericDrive) -> None:
         """

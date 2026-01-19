@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 import logging
 
 from sqlalchemy.exc import DatabaseError, IntegrityError
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, reconstructor
 
 from carconnectivity.vehicle import GenericVehicle, ElectricVehicle
 from carconnectivity.observable import Observable
@@ -73,6 +73,10 @@ class Vehicle(Base):
 
     def __init__(self, vin) -> None:
         self.vin = vin
+
+    @reconstructor
+    def init_on_load(self):
+        self.agents = []
 
     # pylint: disable-next=too-many-branches,too-many-statements
     def connect(self, database_plugin: Plugin, session_factory: scoped_session[Session], carconnectivity_vehicle: GenericVehicle) -> None:
