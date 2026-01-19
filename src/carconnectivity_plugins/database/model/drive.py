@@ -60,14 +60,13 @@ class Drive(Base):
     capacity_total: Mapped[Optional[float]]
     wltp_range: Mapped[Optional[float]]
 
-    agents: list[BaseAgent] = []
-
     def __init__(self, vin, drive_id: Optional[str] = None) -> None:
         self.vin = vin
         self.drive_id = drive_id
+        self.agents: list[BaseAgent] = []
 
     @reconstructor
-    def init_on_load(self):
+    def init_on_load(self) -> None:
         self.agents = []
 
     def connect(self, database_plugin: Plugin, session_factory: scoped_session[Session], carconnectivity_drive: GenericDrive) -> None:

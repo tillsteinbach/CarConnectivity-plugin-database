@@ -69,13 +69,12 @@ class Vehicle(Base):
     type: Mapped[Optional[GenericVehicle.Type]]
     license_plate: Mapped[Optional[str]]
 
-    agents: list[BaseAgent] = []
-
     def __init__(self, vin) -> None:
         self.vin = vin
+        self.agents: list[BaseAgent] = []
 
     @reconstructor
-    def init_on_load(self):
+    def init_on_load(self) -> None:
         self.agents = []
 
     # pylint: disable-next=too-many-branches,too-many-statements
