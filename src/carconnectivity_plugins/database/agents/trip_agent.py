@@ -125,8 +125,7 @@ class TripAgent(BaseAgent):
                                 if not self._update_trip_position(session=session, trip=new_trip, start=True):
                                     # if now no position is available try the last known position that is not older than 5min
                                     if self.last_parked_position_latitude is not None and self.last_parked_position_longitude is not None \
-                                            and self.last_parked_position_time is not None \
-                                            and self.last_parked_position_time < (start_date - timedelta(minutes=5)):
+                                            and self.last_parked_position_time is not None:
                                         self._update_trip_position(session=session, trip=new_trip, start=True,
                                                                    latitude=self.last_parked_position_latitude,
                                                                    longitude=self.last_parked_position_longitude)
