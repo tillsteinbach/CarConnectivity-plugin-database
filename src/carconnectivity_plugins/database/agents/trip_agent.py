@@ -124,8 +124,7 @@ class TripAgent(BaseAgent):
                                     new_trip.start_odometer = self.carconnectivity_vehicle.odometer.in_locale(locale=self.database_plugin.locale)[0]
                                 if not self._update_trip_position(session=session, trip=new_trip, start=True):
                                     # if now no position is available try the last known position that is not older than 5min
-                                    if self.last_parked_position_latitude is not None and self.last_parked_position_longitude is not None \
-                                            and self.last_parked_position_time is not None:
+                                    if self.last_parked_position_latitude is not None and self.last_parked_position_longitude is not None:
                                         self._update_trip_position(session=session, trip=new_trip, start=True,
                                                                    latitude=self.last_parked_position_latitude,
                                                                    longitude=self.last_parked_position_longitude)
@@ -166,14 +165,14 @@ class TripAgent(BaseAgent):
         del flags
         if element.enabled and element.value is not None:
             self.last_parked_position_latitude = element.value
-            self.last_parked_position_time = element.last_changed
+            self.last_parked_position_time = element.last_changed or element.last_updated
             self._on_position_change()
 
     def _on_position_longitude_change(self, element: FloatAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled and element.value is not None:
             self.last_parked_position_longitude = element.value
-            self.last_parked_position_time = element.last_changed
+            self.last_parked_position_time = element.last_changed or element.last_updated
             self._on_position_change()
 
     def _on_position_change(self) -> None:
