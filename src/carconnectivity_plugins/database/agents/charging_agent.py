@@ -247,7 +247,7 @@ class ChargingAgent(BaseAgent):
                                 # And the session end date was not set or is within the allowed interrupt time
                                 # pylint: disable-next=too-many-boolean-expressions
                                 if self.last_charging_session is not None \
-                                        and self.last_charging_session.was_connected() and not self.last_charging_session.was_disconnected() \
+                                        and not self.last_charging_session.was_disconnected() \
                                         and (self.last_charging_session.session_end_date is None or element.last_changed is None
                                              or self.last_charging_session.session_end_date > (element.last_changed - allowed_interrupt)):
                                     LOG.debug("Continuing existing charging session for vehicle %s", self.vehicle.vin)
