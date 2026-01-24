@@ -717,8 +717,6 @@ class ChargingAgent(BaseAgent):
                     session.rollback()
                     LOG.error('DatabaseError while merging location for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
                     self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-        print("charging_session.charging_station:", charging_session.charging_station)
-        print("self.carconnectivity_vehicle.charging.charging_station", self.carconnectivity_vehicle.charging.charging_station)
         if charging_session.charging_station is None \
                 and isinstance(self.carconnectivity_vehicle, ElectricVehicle) and self.carconnectivity_vehicle.charging is not None \
                 and self.carconnectivity_vehicle.charging.enabled and self.carconnectivity_vehicle.charging.charging_station.enabled:
