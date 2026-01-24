@@ -81,6 +81,10 @@ class RefuelAgent(BaseAgent):
 
         self.carconnectivity_vehicle.position.longitude.add_observer(self.__on_longitude_change, Observable.ObserverEvent.UPDATED)
 
+    def __del__(self) -> None:
+        self.carconnectivity_drive.level.remove_observer(self.__on_level_change)
+        self.carconnectivity_vehicle.position.longitude.remove_observer(self.__on_longitude_change)
+
     def __on_level_change(self, element: LevelAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled and element.value is not None:
@@ -141,22 +145,29 @@ class RefuelAgent(BaseAgent):
                     self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
             if refuel_session.location is None and self.carconnectivity_vehicle.position.enabled \
                     and refuel_session.session_position_latitude is not None and refuel_session.session_position_longitude is not None:
-                location_service: Optional[BaseService] = self.database_plugin.car_connectivity.get_service_for(ServiceType.LOCATION_GAS_STATION)
-                if location_service is not None and isinstance(location_service, LocationService):
-                    location_result: Optional[CarConnectivityLocation] = location_service.gas_station_from_lat_lon(
-                        latitude=refuel_session.session_position_latitude,
-                        longitude=refuel_session.session_position_longitude,
-                        radius=150,
-                        location=None)
-                    if location_result is not None:
-                        LOG.debug('Resolved location from position (%s, %s)', refuel_session.session_position_latitude,
-                                  refuel_session.session_position_longitude)
-                        location: Location = Location.from_carconnectivity_location(location=location_result)
-                        try:
-                            location = session.merge(location)
-                            refuel_session.location = location
-                        except DatabaseError as err:
-                            session.rollback()
-                            LOG.error('DatabaseError while merging location for refuel session of vehicle %s in database: %s',
-                                      self.carconnectivity_vehicle.vin.value, err)
-                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+                location_services: Optional[list[BaseService]] = self.database_plugin.car_connectivity.get_services_for(ServiceType.LOCATION_GAS_STATION)
+                if location_services is None or len(location_services) == 0:
+                    LOG.debug('No LocationService available to resolve location from position for refuel session')
+                    return
+                location_result: Optional[CarConnectivityLocation] = None
+                for location_service in location_services:
+                    if location_service is not None and isinstance(location_service, LocationService):
+                        location_result = location_service.gas_station_from_lat_lon(
+                            latitude=refuel_session.session_position_latitude,
+                            longitude=refuel_session.session_position_longitude,
+                            radius=150,
+                            location=None)
+                        if location_result is not None:
+                            break
+                if location_result is not None:
+                    LOG.debug('Resolved location from position (%s, %s)', refuel_session.session_position_latitude,
+                              refuel_session.session_position_longitude)
+                    location: Location = Location.from_carconnectivity_location(location=location_result)
+                    try:
+                        location = session.merge(location)
+                        refuel_session.location = location
+                    except DatabaseError as err:
+                        session.rollback()
+                        LOG.error('DatabaseError while merging location for refuel session of vehicle %s in database: %s',
+                                  self.carconnectivity_vehicle.vin.value, err)
+                        self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access

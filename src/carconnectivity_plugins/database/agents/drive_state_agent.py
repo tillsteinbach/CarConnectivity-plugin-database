@@ -155,6 +155,23 @@ class DriveStateAgent(BaseAgent):
                         self.__on_range_estimated_full_change(self.carconnectivity_drive.range_estimated_full, Observable.ObserverEvent.UPDATED)
             session_factory.remove()
 
+    def __del__(self) -> None:
+        self.carconnectivity_drive.type.remove_observer(self.__on_type_change)
+        self.carconnectivity_drive.range_wltp.remove_observer(self.__on_range_wltp_change)
+
+        if isinstance(self.carconnectivity_drive, ElectricDrive):
+            self.carconnectivity_drive.battery.total_capacity.remove_observer(self.__on_electric_total_capacity_change)
+            self.carconnectivity_drive.battery.available_capacity.remove_observer(self.__on_electric_available_capacity_change)
+            self.carconnectivity_drive.consumption.remove_observer(self.__on_electric_consumption_change)
+
+        elif isinstance(self.carconnectivity_drive, CombustionDrive):
+            self.carconnectivity_drive.fuel_tank.available_capacity.remove_observer(self.__on_fuel_available_capacity_change)
+            self.carconnectivity_drive.consumption.remove_observer(self.__on_fuel_consumption_change)
+
+        self.carconnectivity_drive.level.remove_observer(self.__on_level_change)
+        self.carconnectivity_drive.range.remove_observer(self.__on_range_change)
+        self.carconnectivity_drive.range_estimated_full.remove_observer(self.__on_range_estimated_full_change)
+
     def __on_level_change(self, element: LevelAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:

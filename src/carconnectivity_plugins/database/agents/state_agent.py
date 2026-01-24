@@ -89,6 +89,17 @@ class StateAgent(BaseAgent):
                                                                     on_transaction_end=True)
         self.session_factory.remove()
 
+    def __del__(self) -> None:
+        self.carconnectivity_vehicle.state.remove_observer(self.__on_state_change)
+        self.carconnectivity_vehicle.connection_state.remove_observer(self.__on_connection_state_change)
+        self.carconnectivity_vehicle.outside_temperature.remove_observer(self.__on_outside_temperature_change)
+        self.carconnectivity_vehicle.name.remove_observer(self.__on_name_change)
+        self.carconnectivity_vehicle.manufacturer.remove_observer(self.__on_manufacturer_change)
+        self.carconnectivity_vehicle.model.remove_observer(self.__on_model_change)
+        self.carconnectivity_vehicle.model_year.remove_observer(self.__on_model_year_change)
+        self.carconnectivity_vehicle.type.remove_observer(self.__on_type_change)
+        self.carconnectivity_vehicle.license_plate.remove_observer(self.__on_license_plate_change)
+
     def __on_state_change(self, element: EnumAttribute[GenericVehicle.State], flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:

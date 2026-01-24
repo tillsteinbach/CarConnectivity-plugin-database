@@ -95,6 +95,12 @@ class TripAgent(BaseAgent):
                                                                         on_transaction_end=True)
         self._on_position_location_change(self.carconnectivity_vehicle.position.location.uid, Observable.ObserverEvent.UPDATED)
 
+    def __del__(self) -> None:
+        self.carconnectivity_vehicle.state.remove_observer(self.__on_state_change)
+        self.carconnectivity_vehicle.position.latitude.remove_observer(self._on_position_latitude_change)
+        self.carconnectivity_vehicle.position.longitude.remove_observer(self._on_position_longitude_change)
+        self.carconnectivity_vehicle.position.location.uid.remove_observer(self._on_position_location_change)
+
     # pylint: disable-next=too-many-branches,too-many-statements
     def __on_state_change(self, element: EnumAttribute[GenericVehicle.State], flags: Observable.ObserverEvent) -> None:
         del flags

@@ -148,6 +148,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
         self.scoped_session_factory.remove()
 
     def shutdown(self) -> None:
+        self.car_connectivity.garage.remove_observer(self.__on_add_vehicle)
         self._stop_event.set()
         if self._background_thread is not None:
             self._background_thread.join()

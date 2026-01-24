@@ -173,6 +173,18 @@ class ChargingAgent(BaseAgent):
                     self.__on_battery_temperature_change(electric_drive.battery.temperature, Observable.ObserverEvent.UPDATED)
         self.session_factory.remove()
 
+    def __del__(self) -> None:
+        self.carconnectivity_vehicle.charging.connector.connection_state.remove_observer(self.__on_connector_state_change)
+        self.carconnectivity_vehicle.charging.connector.lock_state.remove_observer(self.__on_connector_lock_state_change)
+        self.carconnectivity_vehicle.charging.state.remove_observer(self.__on_charging_state_change)
+        self.carconnectivity_vehicle.charging.rate.remove_observer(self.__on_charging_rate_change)
+        self.carconnectivity_vehicle.charging.power.remove_observer(self.__on_charging_power_change)
+        self.carconnectivity_vehicle.charging.type.remove_observer(self._on_charging_type_change)
+        electric_drive: Optional[ElectricDrive] = self.carconnectivity_vehicle.get_electric_drive()
+        if electric_drive is not None:
+            electric_drive.level.remove_observer(self._on_battery_level_change)
+            electric_drive.battery.temperature.remove_observer(self.__on_battery_temperature_change)
+
     # pylint: disable=too-many-branches, too-many-statements
     def __on_charging_state_change(self, element: EnumAttribute[Charging.ChargingState], flags: Observable.ObserverEvent) -> None:
         del flags
@@ -705,6 +717,8 @@ class ChargingAgent(BaseAgent):
                     session.rollback()
                     LOG.error('DatabaseError while merging location for charging session of vehicle %s in database: %s', self.vehicle.vin, err)
                     self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+        print("charging_session.charging_station:", charging_session.charging_station)
+        print("self.carconnectivity_vehicle.charging.charging_station", self.carconnectivity_vehicle.charging.charging_station)
         if charging_session.charging_station is None \
                 and isinstance(self.carconnectivity_vehicle, ElectricVehicle) and self.carconnectivity_vehicle.charging is not None \
                 and self.carconnectivity_vehicle.charging.enabled and self.carconnectivity_vehicle.charging.charging_station.enabled:

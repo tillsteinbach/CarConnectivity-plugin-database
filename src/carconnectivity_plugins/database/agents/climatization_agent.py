@@ -76,6 +76,9 @@ class ClimatizationAgent(BaseAgent):
             self.__on_state_change(self.carconnectivity_vehicle.climatization.state, Observable.ObserverEvent.UPDATED)
         self.session_factory.remove()
 
+    def __del__(self) -> None:
+        self.carconnectivity_vehicle.climatization.state.remove_observer(self.__on_state_change)
+
     def __on_state_change(self, element: EnumAttribute[Climatization.ClimatizationState], flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:
