@@ -197,8 +197,6 @@ class TripAgent(BaseAgent):
             if isinstance(location_object, Location):
                 self.last_parked_location = Location.from_carconnectivity_location(location=location_object)
             self._on_location_change()
-        else:
-            self.last_parked_location = None
 
     def _on_position_change(self) -> None:
         # Check if there is a finished trip that lacks destination position. We allow 5min after destination_date to set the position.
