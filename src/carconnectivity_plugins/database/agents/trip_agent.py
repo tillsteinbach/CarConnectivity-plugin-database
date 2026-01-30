@@ -137,7 +137,7 @@ class TripAgent(BaseAgent):
                                         self.carconnectivity_vehicle.odometer.value is not None:
                                     new_trip.start_odometer = self.carconnectivity_vehicle.odometer.in_locale(locale=self.database_plugin.locale)[0]
                                 if not self._update_trip_position(session=session, trip=new_trip, start=True):
-                                    # if now no position is available try the last known position that is not older than 5min
+                                    # if now no position is available try the last known position
                                     if self.last_parked_position_latitude is not None and self.last_parked_position_longitude is not None:
                                         self._update_trip_position(session=session, trip=new_trip, start=True,
                                                                    latitude=self.last_parked_position_latitude,
@@ -260,7 +260,7 @@ class TripAgent(BaseAgent):
                               latitude: Optional[float] = None, longitude: Optional[float] = None, location: Optional[Location] = None) -> bool:
         if self.carconnectivity_vehicle is None:
             raise ValueError("Vehicle's carconnectivity_vehicle attribute is None")
-        if latitude or longitude is None:
+        if latitude is None or longitude is None:
             if self.carconnectivity_vehicle.position.enabled and self.carconnectivity_vehicle.position.latitude.enabled \
                     and self.carconnectivity_vehicle.position.longitude.enabled \
                     and self.carconnectivity_vehicle.position.latitude.value is not None \
