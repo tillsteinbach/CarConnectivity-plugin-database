@@ -271,8 +271,8 @@ class TripAgent(BaseAgent):
             if start:
                 if trip.start_position_latitude is None and trip.start_position_longitude is None:
                     try:
-                        trip.start_position_latitude = self.carconnectivity_vehicle.position.latitude.value
-                        trip.start_position_longitude = self.carconnectivity_vehicle.position.longitude.value
+                        trip.start_position_latitude = latitude
+                        trip.start_position_longitude = longitude
                         session.commit()
                     except DatabaseError as err:
                         session.rollback()
