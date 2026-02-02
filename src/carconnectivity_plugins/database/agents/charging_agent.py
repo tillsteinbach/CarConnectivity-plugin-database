@@ -640,21 +640,21 @@ class ChargingAgent(BaseAgent):
                                 self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                         else:
                             LOG.info("Starting new charging session for vehicle %s due to connector locked state on startup", self.vehicle.vin)
-                        new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_locked_date=element.last_changed)
-                        try:
-                            session.add(new_session)
-                            self._update_session_odometer(session, new_session)
-                            self._update_session_position(session, new_session)
-                            session.commit()
-                            LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
-                            self.last_charging_session = new_session
-                        except IntegrityError as err:
-                            session.rollback()
-                            LOG.error('IntegrityError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-                        except DatabaseError as err:
-                            session.rollback()
-                            LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
-                            self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
+                            new_session: ChargingSession = ChargingSession(vin=self.vehicle.vin, plug_locked_date=element.last_changed)
+                            try:
+                                session.add(new_session)
+                                self._update_session_odometer(session, new_session)
+                                self._update_session_position(session, new_session)
+                                session.commit()
+                                LOG.debug('Added new charging session for vehicle %s to database', self.vehicle.vin)
+                                self.last_charging_session = new_session
+                            except IntegrityError as err:
+                                session.rollback()
+                                LOG.error('IntegrityError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                            except DatabaseError as err:
+                                session.rollback()
+                                LOG.error('DatabaseError while adding charging session for vehicle %s to database: %s', self.vehicle.vin, err)
+                                self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
                     elif self.last_charging_session is not None and not self.last_charging_session.was_locked():
                         try:
                             self.last_charging_session.plug_locked_date = element.last_changed
