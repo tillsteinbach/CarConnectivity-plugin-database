@@ -14,6 +14,7 @@ from sqlalchemy.orm.exc import ObjectDeletedError
 from carconnectivity.observable import Observable
 from carconnectivity.vehicle import GenericVehicle
 from carconnectivity.utils.timeout_lock import TimeoutLock
+from carconnectivity.location import Location as CarConnectivityLocation
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
 from carconnectivity_plugins.database.model.trip import Trip
@@ -194,9 +195,9 @@ class TripAgent(BaseAgent):
         del flags
         if element.enabled and element.value is not None:
             location_object: GenericObject = element.parent
-            if isinstance(location_object, Location):
+            if isinstance(location_object, CarConnectivityLocation):
                 self.last_parked_location = Location.from_carconnectivity_location(location=location_object)
-            self._on_location_change()
+                self._on_location_change()
 
     def _on_position_change(self) -> None:
         # Check if there is a finished trip that lacks destination position. We allow 5min after destination_date to set the position.
@@ -244,7 +245,7 @@ class TripAgent(BaseAgent):
                     if self.trip is not None and self.trip.destination_date is not None and self.trip.destination_location is None \
                             and self.last_parked_position_time is not None \
                             and self.last_parked_position_time < (self.trip.destination_date + timedelta(minutes=5)):
-                        location: Location = Location.from_carconnectivity_location(location=self.last_parked_location)
+                        location: Location = self.last_parked_location
                         try:
                             location = session.merge(location)
                             self.trip.destination_location = location
