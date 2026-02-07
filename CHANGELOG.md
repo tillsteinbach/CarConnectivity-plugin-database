@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 - No unreleased changes so far
 
+## [0.4.3] - 2026-02-07
+### Fixed
+- Fixes a problem where the start position would not be correctly recorded
+
 ## [0.4.2] - 2026-01-23
 ### Fixed
 - Improved reliability on recording trips and charging sessions
@@ -34,7 +38,8 @@ All notable changes to this project will be documented in this file.
 ## [0.1] - 2026-01-04
 Initial release, let's go and give this to the public to try out...
 
-[unreleased]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/compare/v0.4.2...HEAD
+[unreleased]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.4.3
 [0.4.2]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.4.2
 [0.4.1]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.4.1
 [0.4]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.4
