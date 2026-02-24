@@ -156,8 +156,10 @@ class TripAgent(BaseAgent):
                                     session.rollback()
                                     LOG.error('DatabaseError while adding trip for vehicle %s to database: %s', self.vehicle.vin, err)
                                     self.database_plugin.healthy._set_value(value=False)  # pylint: disable=protected-access
-                            elif self.last_carconnectivity_state in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING) \
-                                    and element.value not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING):
+                            elif (self.last_carconnectivity_state == GenericVehicle.State.IGNITION_ON
+                                    and element.value not in (GenericVehicle.State.IGNITION_ON, GenericVehicle.State.DRIVING))
+                                    or (self.last_carconnectivity_state == GenericVehicle.State.DRIVING
+                                        and element.value != GenericVehicle.State.DRIVING):
                                 if self.trip is not None and not self.trip.is_completed():
                                     LOG.info("Ending trip for vehicle %s", self.vehicle.vin)
                                     try:
