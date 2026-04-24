@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 - No unreleased changes so far
 
+## [0.4.5] - 2026-04-24
+### Changed
+- Updated dependencies
+
 ## [0.4.4] - 2026-02-24
 ### Changed
 - End trip also on transition from DRIVING to IGNITION_ON
@@ -42,7 +46,8 @@ All notable changes to this project will be documented in this file.
 ## [0.1] - 2026-01-04
 Initial release, let's go and give this to the public to try out...
 
-[unreleased]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/compare/v0.4.3...HEAD
+[unreleased]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.4.5
 [0.4.4]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.4.4
 [0.4.3]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.4.3
 [0.4.2]: https://github.com/tillsteinbach/CarConnectivity-plugin-database/releases/tag/v0.4.2
