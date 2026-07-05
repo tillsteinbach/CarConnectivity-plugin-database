@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 import logging
 
 from sqlalchemy.exc import DatabaseError, IntegrityError
-from sqlalchemy.orm import Mapped, mapped_column, reconstructor
+from sqlalchemy.orm import Mapped, mapped_column, reconstructor, relationship
 
 from carconnectivity.vehicle import GenericVehicle, ElectricVehicle
 
@@ -66,6 +66,7 @@ class Vehicle(Base):
     model_year: Mapped[Optional[int]]
     type: Mapped[Optional[GenericVehicle.Type]]
     license_plate: Mapped[Optional[str]]
+    drives: Mapped[list["Drive"]] = relationship("Drive", back_populates="vehicle")
 
     def __init__(self, vin) -> None:
         self.vin = vin
@@ -74,6 +75,26 @@ class Vehicle(Base):
     @reconstructor
     def init_on_load(self) -> None:
         self.agents = []
+
+    def _has_agent(self, agent_type: type[BaseAgent]) -> bool:
+        return any(isinstance(agent, agent_type) for agent in self.agents)
+
+    def ensure_dynamic_agents(self, database_plugin: Plugin, session_factory: scoped_session[Session],
+                              carconnectivity_vehicle: GenericVehicle) -> None:
+        """
+        Ensure agents depending on runtime vehicle capabilities are attached.
+
+        This method is idempotent and can be called repeatedly, e.g. when a
+        vehicle gets promoted from GenericVehicle to ElectricVehicle later.
+        """
+        vin: str = self.vin
+        if isinstance(carconnectivity_vehicle, ElectricVehicle):
+            if self._has_agent(ChargingAgent):
+                LOG.debug("ChargingAgent already attached for vehicle %s", vin)
+            else:
+                charging_agent: ChargingAgent = ChargingAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
+                self.agents.append(charging_agent)
+                LOG.info("Adding ChargingAgent to vehicle %s", vin)
 
     # pylint: disable-next=too-many-branches,too-many-statements
     def connect(self, database_plugin: Plugin, session_factory: scoped_session[Session], carconnectivity_vehicle: GenericVehicle) -> None:
@@ -143,8 +164,6 @@ class Vehicle(Base):
             self.agents.append(trip_agent)
             LOG.debug("Adding TripAgent to vehicle %s", vin)
 
-            if isinstance(carconnectivity_vehicle, ElectricVehicle):
-                charging_agent: ChargingAgent = ChargingAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
-                self.agents.append(charging_agent)
-                LOG.debug("Adding ChargingAgent to vehicle %s", vin)
+            self.ensure_dynamic_agents(database_plugin=database_plugin, session_factory=session_factory,
+                                       carconnectivity_vehicle=carconnectivity_vehicle)
         session_factory.remove()

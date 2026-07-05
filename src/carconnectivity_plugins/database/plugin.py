@@ -29,7 +29,7 @@ from carconnectivity_plugins.database.model.base import Base
 
 
 if TYPE_CHECKING:
-    from typing import Dict, Optional
+    from typing import Any, Dict, Optional
     from carconnectivity.carconnectivity import CarConnectivity
 
 LOG: logging.Logger = logging.getLogger("carconnectivity.plugins.database")
@@ -84,6 +84,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
         self.scoped_session_factory: scoped_session[Session] = scoped_session(session_factory)
 
         self.vehicles: Dict[str, Vehicle] = {}
+        self._vehicle_type_attributes: Dict[str, Any] = {}
         self.vehicles_lock: TimeoutLock = TimeoutLock()
 
     def startup(self) -> None:
@@ -130,6 +131,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                                             LOG.debug('Added new vehicle %s to database', garage_vehicle.vin.value)
                                             new_vehicle.connect(self, self.scoped_session_factory, garage_vehicle)
                                             self.vehicles[garage_vehicle.vin.value] = new_vehicle
+                                            self.__register_vehicle_type_observer(garage_vehicle)
                                         except IntegrityError as err:
                                             session.rollback()
                                             LOG.error('IntegrityError while adding vehicle %s to database: %s', garage_vehicle.vin.value, err)
@@ -141,6 +143,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                                     else:
                                         new_vehicle.connect(self, self.scoped_session_factory, garage_vehicle)
                                         self.vehicles[garage_vehicle.vin.value] = new_vehicle
+                                        self.__register_vehicle_type_observer(garage_vehicle)
                 except OperationalError as err:
                     LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
                     self.healthy._set_value(value=False)  # pylint: disable=protected-access
@@ -149,6 +152,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
 
     def shutdown(self) -> None:
         self.car_connectivity.garage.remove_observer(self.__on_add_vehicle)
+        self._vehicle_type_attributes = {}
         self._stop_event.set()
         if self._background_thread is not None:
             self._background_thread.join()
@@ -187,4 +191,29 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                     else:
                         vehicle.connect(self, self.scoped_session_factory, element)
                     self.vehicles[element.vin.value] = vehicle
+                    self.__register_vehicle_type_observer(element)
                 self.scoped_session_factory.remove()
+
+    def __register_vehicle_type_observer(self, garage_vehicle: GenericVehicle) -> None:
+        if garage_vehicle.vin.value is None:
+            return
+        vin: str = garage_vehicle.vin.value
+        previous_attribute = self._vehicle_type_attributes.get(vin)
+        if previous_attribute is garage_vehicle.type:
+            return
+        garage_vehicle.type.add_observer(self.__on_vehicle_type_change,
+                                         flag=Observable.ObserverEvent.VALUE_CHANGED | Observable.ObserverEvent.UPDATED,
+                                         on_transaction_end=True)
+        self._vehicle_type_attributes[vin] = garage_vehicle.type
+
+    def __on_vehicle_type_change(self, element, flags) -> None:
+        del flags
+        if not isinstance(element.parent, GenericVehicle) or element.parent.vin.value is None:
+            return
+        garage_vehicle: GenericVehicle = element.parent
+        vin: str = garage_vehicle.vin.value
+        with self.vehicles_lock:
+            if vin not in self.vehicles:
+                return
+            self.__register_vehicle_type_observer(garage_vehicle)
+            self.vehicles[vin].ensure_dynamic_agents(self, self.scoped_session_factory, garage_vehicle)

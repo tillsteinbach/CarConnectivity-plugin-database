@@ -53,7 +53,7 @@ class Drive(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     vin: Mapped[str] = mapped_column(ForeignKey("vehicles.vin"))
-    vehicle: Mapped["Vehicle"] = relationship("Vehicle")
+    vehicle: Mapped["Vehicle"] = relationship("Vehicle", back_populates="drives")
     drive_id: Mapped[Optional[str]]
     type: Mapped[Optional[GenericDrive.Type]]
     capacity: Mapped[Optional[float]]
