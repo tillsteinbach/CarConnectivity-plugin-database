@@ -202,7 +202,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
         if previous_attribute is garage_vehicle.type:
             return
         garage_vehicle.type.add_observer(self.__on_vehicle_type_change,
-                                         flag=Observable.ObserverEvent.VALUE_CHANGED | Observable.ObserverEvent.UPDATED,
+                                         flag=Observable.ObserverEvent.VALUE_CHANGED,
                                          on_transaction_end=True)
         self._vehicle_type_attributes[vin] = garage_vehicle.type
 
