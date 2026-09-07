@@ -14,6 +14,7 @@ from .drive_range import DriveRange  # noqa: F401
 from .drive_range_full import DriveRangeEstimatedFull  # noqa: F401
 from .location import Location  # noqa: F401
 from .outside_temperature import OutsideTemperature  # noqa: F401
+from .odometer import Odometer  # noqa: F401
 from .refuel_session import RefuelSession  # noqa: F401
 from .state import State  # noqa: F401
 from .tag import Tag  # noqa: F401
