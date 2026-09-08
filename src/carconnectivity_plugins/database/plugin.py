@@ -60,7 +60,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
             self.active_config['locale'] = config['locale']
             try:
                 locale.setlocale(locale.LC_ALL, self.active_config['locale'])
-                if self.active_config['time_format'] is None or self.active_config['time_format'] == '':
+                if 'time_format' not in self.active_config or self.active_config['time_format'] is None or self.active_config['time_format'] == '':
                     self.active_config['time_format'] = locale.nl_langinfo(locale.D_T_FMT)
             except locale.Error as err:
                 LOG.warning('Invalid locale specified in config ("locale" must be a valid locale): %s', err)

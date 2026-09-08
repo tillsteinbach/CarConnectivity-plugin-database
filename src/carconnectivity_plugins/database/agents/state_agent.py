@@ -10,6 +10,7 @@ from sqlalchemy.exc import DatabaseError, IntegrityError
 from sqlalchemy.orm.exc import ObjectDeletedError
 
 from carconnectivity.observable import Observable
+from carconnectivity.units import Temperature
 from carconnectivity.utils.timeout_lock import TimeoutLock
 
 from carconnectivity_plugins.database.agents.base_agent import BaseAgent
@@ -198,7 +199,7 @@ class StateAgent(BaseAgent):
     def __on_outside_temperature_change(self, element: TemperatureAttribute, flags: Observable.ObserverEvent) -> None:
         del flags
         if element.enabled:
-            converted_value: Optional[float] = element.in_locale(locale=self.database_plugin.locale)[0]
+            converted_value: Optional[float] = element.temperature_in(Temperature.C)
             with self.last_outside_temperature_lock:
                 with self.session_factory() as session:
                     self.vehicle = session.merge(self.vehicle)
