@@ -14,6 +14,7 @@ from carconnectivity_plugins.database.agents.state_agent import StateAgent
 from carconnectivity_plugins.database.agents.charging_agent import ChargingAgent
 from carconnectivity_plugins.database.agents.climatization_agent import ClimatizationAgent
 from carconnectivity_plugins.database.agents.trip_agent import TripAgent
+from carconnectivity_plugins.database.agents.odometer_agent import OdometerAgent
 from carconnectivity_plugins.database.model.base import Base
 from carconnectivity_plugins.database.model.drive import Drive
 
@@ -163,6 +164,9 @@ class Vehicle(Base):
             trip_agent: TripAgent = TripAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
             self.agents.append(trip_agent)
             LOG.debug("Adding TripAgent to vehicle %s", vin)
+            odometer_agent: OdometerAgent = OdometerAgent(database_plugin, session_factory, self, carconnectivity_vehicle)
+            self.agents.append(odometer_agent)
+            LOG.debug("Adding OdometerAgent to vehicle %s", vin)
 
             self.ensure_dynamic_agents(database_plugin=database_plugin, session_factory=session_factory,
                                        carconnectivity_vehicle=carconnectivity_vehicle)
