@@ -75,6 +75,7 @@ class OdometerAgent(BaseAgent):  # pylint: disable=too-few-public-methods
                         try:
                             session.add(new_odometer)
                             session.commit()
+                            LOG.debug('Added new odometer reading %.2f for vehicle %s to database', converted_value, self.vehicle.vin) 
                             self.last_odometer = new_odometer
                         except IntegrityError as err:
                             session.rollback()
@@ -88,6 +89,7 @@ class OdometerAgent(BaseAgent):  # pylint: disable=too-few-public-methods
                         try:
                             self.last_odometer.last_date = element.last_updated
                             session.commit()
+                            LOG.debug('Updated odometer reading %.2f for vehicle %s in database', converted_value, self.vehicle.vin)
                         except DatabaseError as err:
                             session.rollback()
                             LOG.error('DatabaseError while updating odometer for vehicle %s to database: %s', self.vehicle.vin, err)
