@@ -10,7 +10,7 @@ import logging
 
 from sqlalchemy import Engine, create_engine, text, inspect
 from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy.exc import DatabaseError, OperationalError, IntegrityError
+from sqlalchemy.exc import DatabaseError, OperationalError, IntegrityError, SQLAlchemyError
 from sqlalchemy.orm.session import Session
 
 from carconnectivity.errors import ConfigurationError
@@ -99,6 +99,7 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
     def _background_loop(self) -> None:
         self._stop_event.clear()
         first_run: bool = True
+        observing: bool = False
         with self.scoped_session_factory() as session:
             while not self._stop_event.is_set():
                 try:
@@ -106,7 +107,6 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                     self.healthy._set_value(value=True)  # pylint: disable=protected-access
                     if first_run:
                         LOG.info('Database connection established successfully')
-                        first_run = False
                         if not inspect(self.engine).has_table("alembic_version"):
                             LOG.info('It looks like you have an empty database will create all tables')
                             Base.metadata.create_all(self.engine)
@@ -117,7 +117,9 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                             run_database_migrations(dsn=self.active_config['db_url'])
                             LOG.info('Database upgrade done')
                         session.commit()
-                        self.car_connectivity.garage.add_observer(self.__on_add_vehicle, flag=Observable.ObserverEvent.ENABLED, on_transaction_end=True)
+                        if not observing:
+                            self.car_connectivity.garage.add_observer(self.__on_add_vehicle, flag=Observable.ObserverEvent.ENABLED, on_transaction_end=True)
+                            observing = True
                         with self.vehicles_lock:
                             for garage_vehicle in self.car_connectivity.garage.list_vehicles():
                                 if garage_vehicle.vin.value is not None and garage_vehicle.vin.value not in self.vehicles:
@@ -144,11 +146,28 @@ class Plugin(BasePlugin):  # pylint: disable=too-many-instance-attributes
                                         new_vehicle.connect(self, self.scoped_session_factory, garage_vehicle)
                                         self.vehicles[garage_vehicle.vin.value] = new_vehicle
                                         self.__register_vehicle_type_observer(garage_vehicle)
-                except OperationalError as err:
-                    LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
-                    self.healthy._set_value(value=False)  # pylint: disable=protected-access
+                        # Only now: an error above leaves first_run set, so the next round does the setup again
+                        first_run = False
+                except Exception as err:  # pylint: disable=broad-exception-caught
+                    # Nothing may end this loop: the plugin would write nothing again, with no sign but this log.
+                    self.__on_loop_error(session, err)
                 self._stop_event.wait(10)
         self.scoped_session_factory.remove()
+
+    def __on_loop_error(self, session: Session, err: Exception) -> None:
+        if isinstance(err, OperationalError):
+            LOG.error('Could not establish a connection to database, will try again after 10 seconds: %s', err)
+        elif isinstance(err, SQLAlchemyError):
+            LOG.error('Database error, will try again after 10 seconds: %s', err)
+        else:
+            LOG.exception('Unexpected error in database background loop, will try again after 10 seconds: %s', err)
+        self.healthy._set_value(value=False)  # pylint: disable=protected-access
+        # A connection lost inside a transaction leaves the session unusable until it is rolled back:
+        # every later statement raises PendingRollbackError, even once the database is back.
+        try:
+            session.rollback()
+        except SQLAlchemyError as rollback_err:
+            LOG.debug('Rollback after database error failed: %s', rollback_err)
 
     def shutdown(self) -> None:
         self.car_connectivity.garage.remove_observer(self.__on_add_vehicle)
